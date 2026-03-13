@@ -191,6 +191,17 @@ class ArtifactStore:
 
         return PageResult(name=row[0], url=f"/apps/{row[0]}", description=row[1], created_at=row[2], updated_at=row[3])
 
+    async def get_page_source(self, name: str) -> str:
+        """Fetch raw JSX source for a page. Raises KeyError if not found."""
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute(
+                "SELECT jsx_code FROM pages WHERE name = ?", (name,)
+            ) as cur:
+                row = await cur.fetchone()
+        if row is None:
+            raise KeyError(f"Page not found: {name!r}")
+        return row[0]
+
     async def list_pages(self) -> list[PageMeta]:
         """List all pages sorted by updated_at descending."""
         async with aiosqlite.connect(self._db_path) as db:

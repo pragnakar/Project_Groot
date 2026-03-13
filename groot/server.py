@@ -32,6 +32,7 @@ from groot.models import (
     WriteBlobRequest,
 )
 from groot.mcp_transport import mount_sse_transport
+from groot.page_server import PageServer
 from groot.tools import ToolRegistry, register_core_tools
 
 logger = logging.getLogger(__name__)
@@ -85,21 +86,29 @@ async def lifespan(app: FastAPI):
     registry = ToolRegistry()
     register_core_tools(registry, store)
 
+    page_server = PageServer(store)
+
     # Load enabled app modules — graceful skip on missing
     for app_name in settings.apps_list():
         try:
             module = importlib.import_module(f"groot_apps.{app_name}.loader")
-            module.register(registry, store)
+            module.register(registry, page_server, store)
             logger.info("Loaded Groot app module: %s", app_name)
         except ModuleNotFoundError:
             logger.warning("Groot app module not found, skipping: %s", app_name)
         except Exception as e:
             logger.warning("Failed to load Groot app module %s: %s", app_name, e)
 
+    # Mount page server routes (idempotent — replaces on each lifespan restart)
+    _ps_paths = {"/api/pages", "/api/pages/{name}/source", "/api/pages/{name}/meta"}
+    app.router.routes[:] = [r for r in app.router.routes if getattr(r, "path", None) not in _ps_paths]
+    app.include_router(page_server.get_routes())
+
     mount_sse_transport(app, registry, store, settings)
 
     app.state.store = store
     app.state.registry = registry
+    app.state.page_server = page_server
     app.state.start_time = time.time()
 
     logger.info("Groot runtime started. Apps: %s", settings.apps_list())

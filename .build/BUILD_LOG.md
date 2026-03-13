@@ -63,3 +63,26 @@ Notable fixes:
   - Spec §4 lists 14 tools (4+4+3+3), not 12 as stated in narrative — implemented all 14
 Next: Peter reviews phase gate (868hw8r3f). On approval → G2 (MCP transport: stdio + SSE).
 Evidence: pytest 105 passed. All 5 G1 tasks COMPLETE in ClickUp. SHA 79ac953 on remote.
+
+---
+
+2026-03-13 | phase-G2 | complete
+---
+Context: G1 complete (105 tests). Phase gate (868hw8r3f) approved by Peter. G2 tasks staged in ClickUp by claude.ai, handed off to Claude Code on branch feature/g2-mcp-transport.
+Work:
+  G2-1 (868hw88wy) — groot/mcp_transport.py: MCPBridge class, register_tools_with_mcp(), run_stdio(). groot/__main__.py: unified entry point (python -m groot, --mcp-stdio, --http). mcp_config.example.json: Claude Desktop config. pyproject.toml: mcp[cli]>=1.26.0 added. 12 tests.
+  G2-2 (868hw891x) — mount_sse_transport(): GET /mcp/sse (auth via ?key= query param) + POST /mcp/messages mounted on FastAPI app. server.py lifespan calls mount_sse_transport(). __main__.py: --port flag added. README.md: full quick start. 8 tests.
+Result:
+  Branch: feature/g2-mcp-transport @ SHA 87a5845 — merged to main
+  Repo: github.com/pragnakar/Project_Groot (main is now default branch; feature branches deleted)
+  Full suite: 125/125 passed — zero failures, zero warnings
+  Phase gate posted: [CLAUDE-CODE] Phase G2 complete (868hw9111) → OPEN-HUMAN-REVIEW
+Notable decisions:
+  - Used mcp 1.26.0 low-level Server API (not FastMCP) — ToolRegistry schemas flow directly to MCP inputSchema, no duplication
+  - MCPBridge is a standalone class: all 12 transport tests use it directly (no JSON-RPC stdio setup needed)
+  - SSE routes added via app.router.routes with in-place replacement on each lifespan restart — idempotent for test reuse of module-level FastAPI app
+  - SSE auth via ?key= query param only (EventSource API does not support custom headers)
+  - SSE streaming path is pragma: no cover in MCP SDK itself; unit tests cover auth + session error responses; full streaming tested end-to-end
+  - list/bool tool return values wrapped in {"result": ...} (MCP structured content requires dict)
+Next: Peter reviews phase gate (868hw9111). On approval → G3 (page server + React shell).
+Evidence: pytest 125 passed. Both G2 tasks COMPLETE in ClickUp. SHA 87a5845 merged to main.

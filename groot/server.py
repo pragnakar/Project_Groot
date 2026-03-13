@@ -4,11 +4,14 @@ import importlib
 import logging
 import time
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
+
+_SHELL_DIR = Path(__file__).parent.parent / "groot-shell"
 
 from groot.artifact_store import ArtifactStore
 from groot.auth import AuthContext, verify_api_key
@@ -31,7 +34,9 @@ from groot.models import (
     UpdatePageRequest,
     WriteBlobRequest,
 )
+from groot.builtin_pages import register_builtin_pages
 from groot.mcp_transport import mount_sse_transport
+from groot.page_server import PageServer
 from groot.tools import ToolRegistry, register_core_tools
 
 logger = logging.getLogger(__name__)
@@ -85,21 +90,30 @@ async def lifespan(app: FastAPI):
     registry = ToolRegistry()
     register_core_tools(registry, store)
 
+    page_server = PageServer(store)
+    await register_builtin_pages(store)
+
     # Load enabled app modules — graceful skip on missing
     for app_name in settings.apps_list():
         try:
             module = importlib.import_module(f"groot_apps.{app_name}.loader")
-            module.register(registry, store)
+            module.register(registry, page_server, store)
             logger.info("Loaded Groot app module: %s", app_name)
         except ModuleNotFoundError:
             logger.warning("Groot app module not found, skipping: %s", app_name)
         except Exception as e:
             logger.warning("Failed to load Groot app module %s: %s", app_name, e)
 
+    # Mount page server routes (idempotent — replaces on each lifespan restart)
+    _ps_paths = {"/api/pages", "/api/pages/{name}/source", "/api/pages/{name}/meta"}
+    app.router.routes[:] = [r for r in app.router.routes if getattr(r, "path", None) not in _ps_paths]
+    app.include_router(page_server.get_routes())
+
     mount_sse_transport(app, registry, store, settings)
 
     app.state.store = store
     app.state.registry = registry
+    app.state.page_server = page_server
     app.state.start_time = time.time()
 
     logger.info("Groot runtime started. Apps: %s", settings.apps_list())
@@ -163,6 +177,25 @@ def get_uptime(request: Request) -> float:
 @app.get("/health")
 async def health():
     return {"status": "ok", "version": "0.1.0"}
+
+
+# ---------------------------------------------------------------------------
+# React shell — SPA routes (must come after API routes so they don't shadow)
+# ---------------------------------------------------------------------------
+
+@app.get("/")
+async def shell_root():
+    return FileResponse(_SHELL_DIR / "index.html")
+
+
+@app.get("/artifacts")
+async def shell_artifacts():
+    return FileResponse(_SHELL_DIR / "index.html")
+
+
+@app.get("/apps/{path:path}")
+async def shell_apps(path: str):
+    return FileResponse(_SHELL_DIR / "index.html")
 
 
 # ---------------------------------------------------------------------------

@@ -12,12 +12,12 @@ from groot.models import PageMeta, PageResult
 
 logger = logging.getLogger(__name__)
 
-# Page names: start with alphanumeric, then alphanumeric or hyphens
-_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9\-]*$")
+# Page names: start with alphanumeric or underscore, then alphanumeric, hyphens, or underscores
+_NAME_RE = re.compile(r"^[a-zA-Z0-9_][a-zA-Z0-9_\-]*$")
 
 
 def _validate_name(name: str) -> None:
-    """Raise ValueError if name is not URL-safe (alphanumeric + hyphens)."""
+    """Raise ValueError if name is not URL-safe (alphanumeric, hyphens, underscores)."""
     if not _NAME_RE.match(name):
         raise ValueError(
             f"Page name must contain only alphanumeric characters and hyphens: {name!r}"

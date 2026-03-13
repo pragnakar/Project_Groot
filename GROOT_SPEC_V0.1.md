@@ -3,7 +3,8 @@
 **Prepared:** 2026-03-13
 **Author:** Claude (Cowork instance) — for Claude Code execution
 **Repo:** New repo — `github.com/pragnakar/Project_Groot` (to be created)
-**First Groot app:** sage/ (sage-cloud v0.2 built as a Groot domain module)
+**First Groot app:** Deferred — sage/ will integrate from its own repo (Project Sage)
+**App module interface:** Generalized — any developer or AI can fork and build their own Groot app
 **Runway constraint:** Ship MVP in ≤5 days of Claude Code sessions
 
 ---
@@ -90,15 +91,14 @@ Project_Groot/
 │   ├── models.py              ← Pydantic schemas for all tool I/O
 │   └── config.py              ← Settings (env vars, .env)
 │
-├── groot-apps/
-│   └── sage/                  ← sage-cloud v0.2 as first Groot app
+├── groot_apps/
+│   └── _example/              ← Example app scaffold (ships with Groot)
 │       ├── __init__.py
-│       ├── tools.py           ← SAGE-specific tools (solve, explain, etc.)
-│       ├── pages/             ← SAGE React components
-│       │   ├── dashboard.jsx
-│       │   ├── result.jsx
-│       │   └── sensitivity.jsx
-│       └── loader.py          ← Registers sage tools + pages at startup
+│       ├── loader.py          ← Minimal register() — one demo tool + one demo page
+│       └── README.md          ← "Build Your First Groot App" guide
+│
+├── docs/
+│   └── APP_MODULE_GUIDE.md    ← Developer guide: how to build a Groot app module
 │
 ├── groot-shell/               ← React frontend shell
 │   ├── index.html
@@ -249,44 +249,76 @@ For v0.2, replace with a proper module federation or Vite-based dynamic import a
 
 ## 7. App Module Interface
 
-Domain apps register themselves with Groot at startup.
+Domain apps register themselves with Groot at startup via a standardized protocol. **Groot ships domain-agnostic** — any developer or AI agent can fork the repo, create `groot_apps/{name}/loader.py`, and have a working app module.
+
+### 7.1 The Protocol
 
 ```python
-# groot-apps/sage/loader.py
+# groot/app_protocol.py
+
+from typing import Protocol, runtime_checkable
+
+@runtime_checkable
+class AppProtocol(Protocol):
+    """Every Groot app module must expose a loader that satisfies this protocol."""
+
+    async def register(
+        self,
+        tool_registry: "ToolRegistry",
+        page_server: "PageServer",
+        store: "ArtifactStore"
+    ) -> None:
+        """Called by Groot runtime at startup. Register tools, pages, and any
+        artifacts your app needs. Groot passes in the shared runtime services."""
+        ...
+```
+
+### 7.2 Example App (ships with Groot)
+
+```python
+# groot_apps/_example/loader.py
 
 from groot.tools import ToolRegistry
 from groot.page_server import PageServer
+from groot.artifact_store import ArtifactStore
 
-def register(tool_registry: ToolRegistry, page_server: PageServer):
-    """Called by Groot runtime at startup when sage app is enabled."""
+async def register(tool_registry: ToolRegistry, page_server: PageServer, store: ArtifactStore):
+    """Minimal example — one tool, one page. Copy this to start your own app."""
 
-    # Register SAGE-specific tools
-    tool_registry.register(solve_optimization)
-    tool_registry.register(explain_solution)
-    tool_registry.register(check_feasibility)
-    tool_registry.register(read_data_file)
-    tool_registry.register(solve_from_file)
-    tool_registry.register(generate_template)
-    tool_registry.register(suggest_relaxations)
+    @tool_registry.tool(name="example.hello", description="Returns a greeting")
+    async def hello(name: str = "world") -> dict:
+        return {"message": f"Hello, {name}!"}
 
-    # Register SAGE-specific pages
-    page_server.register_static("sage-dashboard", "pages/dashboard.jsx")
-    page_server.register_static("sage-result", "pages/result.jsx")
-    page_server.register_static("sage-sensitivity", "pages/sensitivity.jsx")
+    await page_server.register_static("example-demo", "pages/demo.jsx")
 ```
 
-Groot's startup:
+### 7.3 Groot Startup (Generalized)
+
 ```python
 # groot/server.py
 
-ENABLED_APPS = os.getenv("GROOT_APPS", "sage").split(",")
+ENABLED_APPS = os.getenv("GROOT_APPS", "_example").split(",")
 
 @app.on_event("startup")
 async def startup():
     for app_name in ENABLED_APPS:
         module = importlib.import_module(f"groot_apps.{app_name}.loader")
-        module.register(tool_registry, page_server)
+        # Validate protocol compliance before calling register
+        if not hasattr(module, 'register'):
+            raise RuntimeError(f"App '{app_name}' missing register() in loader.py")
+        await module.register(tool_registry, page_server, artifact_store)
 ```
+
+### 7.4 Convention
+
+| Item | Convention |
+|---|---|
+| Directory | `groot_apps/{app_name}/loader.py` |
+| Entry point | `async register(tool_registry, page_server, store)` |
+| Tool namespace | `{app_name}.{tool_name}` (e.g., `sage.solve_optimization`) |
+| Page namespace | `{app_name}-{page_name}` (e.g., `sage-dashboard`) |
+| Config | App reads its own env vars; Groot passes shared services only |
+| Docs | Each app should include a `README.md` in its directory |
 
 ---
 
@@ -349,24 +381,71 @@ Branch: feature/g3-page-server
 5. Test: update_page replaces component live
 ```
 
-### Phase G4 — Sage App Module (Hours 27-38)
+### Phase G4 — Sage App Module ❌ DEFERRED
 
-```
-Branch: feature/g4-sage-app
+> **Status:** Deferred to Project Sage's own repository.
+> **Decision date:** 2026-03-13
+> **Decided by:** Peter (human review)
 
-1. groot-apps/sage/ package
-2. sage/tools.py — Wrap sage-solver-core tools for Groot's tool registry
-   - These are the SAME 7 tools from sage-solver-mcp/server.py
-   - Adapt: replace module-level ServerState with per-request job state (from BACK_TO_WORK_SPEC.md job manager design)
-3. sage/pages/ — Port sage-cloud web UI designs to Groot React pages:
-   - dashboard.jsx — recent solves, quick-solve form
-   - result.jsx — variable values, binding constraints, download
-   - sensitivity.jsx — shadow prices, "what if" sliders
-4. sage/loader.py — register() function
-5. Update groot/server.py startup to load sage by default
-6. Tests: full flow — LLM calls solve_optimization → result stored → /apps/sage-result renders it
-7. Tag: groot-v0.1.0 + sage-v0.2.0
-```
+**Rationale:** Sage is a domain-specific optimization engine with its own development lifecycle, dependency tree (sage-solver-core, PuLP, etc.), and release cadence. Coupling it into the Groot repo would violate Groot's core principle of domain-agnosticism. Instead:
+
+1. **Groot ships as a clean, forkable runtime** — any developer or AI agent can clone it, drop in their own `groot_apps/{name}/loader.py`, and have a working LLM runtime without needing to understand or remove sage-specific code.
+2. **Sage integrates with Groot as an external app module** — Project Sage will use the same ClickUp workflow pipeline and Groot's app module interface (`register()`) to plug in, but from its own repo.
+3. **The generalized app module interface (G-APP) replaces G4** — instead of building one specific app, we build the scaffold and documentation that makes Groot usable by *any* app.
+
+**What was G4 becomes:** Project Sage work tracked in its own ClickUp space, consuming Groot as a dependency.
+
+**Original G4 tasks closed:**
+- G4-1, G4-2, G4-3 → status COMPLETE with deferral comments
+
+---
+
+### Phase G-APP — Generalized App Module Interface (Replaces G4)
+
+> **Status:** HUMAN-REVIEW-2 (ClickUp task 868hw9808)
+> **Added:** 2026-03-13
+
+**Objective:** Make Groot forkable by any developer or AI agent. Ship the generalized app module interface — the protocol, scaffold, documentation, and example loader that lets anyone build a Groot app without reading Groot internals.
+
+**Why this exists:** When G4 (sage) was deferred, it revealed that Groot's app module interface (§7) was described only through a sage-specific example. A domain-agnostic runtime needs a domain-agnostic onboarding path. G-APP closes that gap.
+
+**Branch:** `feature/g-app-module-interface`
+
+**Deliverables:**
+
+1. **App Module Protocol** — `groot/app_protocol.py`
+   - `AppProtocol` (Python Protocol class): `register(tool_registry, page_server, store)` with full type hints
+   - Startup lifecycle: `on_startup()` / `on_shutdown()` hooks
+   - App metadata: name, version, description, author
+   - Groot validates each loader against the protocol at startup — clear error messages if `register()` signature is wrong
+
+2. **Example App Scaffold** — `groot_apps/_example/`
+   - `loader.py` — minimal working `register()` with one demo tool + one demo page
+   - `README.md` — step-by-step "Build Your First Groot App" guide
+   - Serves as both documentation and integration test fixture
+
+3. **App Discovery & Loading** — Updates to `groot/server.py`
+   - `GROOT_APPS` env var → discover → validate protocol → call `register()`
+   - Structured error reporting: missing loader, bad signature, import failure
+   - Namespace isolation: app tools prefixed with app name (e.g., `sage.solve_optimization`)
+
+4. **REST Endpoints for App Introspection**
+   - `GET /api/apps` → list loaded apps with metadata
+   - `GET /api/apps/{name}` → app detail: tools registered, pages registered, status
+
+5. **Developer Documentation** — `docs/APP_MODULE_GUIDE.md`
+   - The contract: what Groot gives you, what you provide
+   - Directory layout convention: `groot_apps/{name}/loader.py`
+   - Tool registration, page registration, store access patterns
+   - Testing your app module independently
+
+**Acceptance Criteria:**
+- [ ] `groot_apps/_example/` loads successfully on startup with `GROOT_APPS=_example`
+- [ ] Example app's demo tool callable via REST and MCP
+- [ ] Example app's demo page renders at `/apps/_example-demo`
+- [ ] `GET /api/apps` returns loaded app metadata
+- [ ] A loader with wrong `register()` signature produces a clear error, not a traceback
+- [ ] `APP_MODULE_GUIDE.md` is sufficient for a developer (or AI agent) to build a new app module without reading Groot source
 
 ---
 
@@ -382,6 +461,8 @@ Branch: feature/g4-sage-app
 | 6 | App modules | Import at startup | Simple, no service discovery overhead for MVP. |
 | 7 | State isolation | Per-request (no module-level state) | Multi-app from day one. Learned from sage-mcp's ServerState limitation. |
 | 8 | In-chat design flow | Claude chat → approve → create_page | Chat is Groot's design surface. Every page reviewed before entering artifact store. |
+| 9 | App module scope | Generalized, not sage-specific | G4 (sage) deferred to own repo. Groot ships domain-agnostic with example scaffold. Any dev/AI can fork and build. |
+| 10 | App module protocol | Python Protocol class with runtime check | Validates loader at startup. Clear errors for bad signatures. Prevents runtime surprises. |
 
 ---
 
@@ -400,11 +481,13 @@ Branch: feature/g4-sage-app
 
 | Without Groot | With Groot |
 |---|---|
-| sage-cloud is a one-off FastAPI app | sage-cloud is a Groot app module — 30% the code |
-| Hermes needs its own web server | Hermes registers tools + pages into Groot |
-| Athena starts from scratch | Athena drops into Groot in days |
+| Every LLM project builds its own FastAPI server | Fork Groot, add `groot_apps/{name}/loader.py`, ship |
 | Each project reinvents storage | One artifact store, accumulated across all apps |
-| No design review layer | Claude in Chat generates pages; Peter approves before they enter Groot |
+| No standard LLM tool interface | Validated tool registry with Pydantic models and MCP transport |
+| No live UI without a build step | React shell + Babel CDN — LLM creates pages, they render instantly |
+| No design review layer | Claude in Chat generates pages; human approves before they enter Groot |
+| sage-cloud is a one-off app | sage integrates from its own repo as a Groot app module |
+| New AI agents start from scratch | Any AI agent can fork Groot and have a runtime in minutes |
 
 ---
 
@@ -413,15 +496,20 @@ Branch: feature/g4-sage-app
 ```
 [ ] 1. Read this file (GROOT_SPEC_V0.1.md)
 [ ] 2. Read groot_spec.md (Peter's original vision — understand the why)
-[ ] 3. Read BACK_TO_WORK_SPEC.md (sage-cloud spec — this becomes Phase G4)
-[ ] 4. Read HANDOFF.md (sage-solver-core architecture — don't re-implement anything)
-[ ] 5. Create new GitHub repo: Project_Groot
-[ ] 6. Start Phase G1: groot/artifact_store.py first, then tools.py, then server.py
-[ ] 7. Follow phase protocol: build → test → verify → next phase
-[ ] 8. Tag v0.1.0 after Phase G3. Phase G4 is sage v0.2.0 on top of Groot.
+[ ] 3. Read .build/AGENT.md, .build/SPEC.md, .build/BUILD_LOG.md
+[ ] 4. Check ClickUp Claude Code Queue (901113364003) for pending tasks
+[ ] 5. Create new GitHub repo: Project_Groot (if not already created)
+[ ] 6. Phase G1: groot/artifact_store.py → tools.py → server.py → auth.py → tests
+[ ] 7. Phase G2: mcp_transport.py → stdio + SSE → entry points → tests
+[ ] 8. Phase G3: page_server.py → React shell → integration tests
+[ ] 9. Phase G-APP: app_protocol.py → _example scaffold → docs/APP_MODULE_GUIDE.md
+[ ] 10. Tag groot-v0.1.0 after G3 + G-APP pass all acceptance criteria
 ```
+
+**Note:** Phase G4 (sage) is deferred. Sage will integrate with Groot from Project Sage's own repo. Do not build sage-specific code in this repo.
 
 ---
 
 *This spec was authored by Claude (Cowork) on 2026-03-13 based on Peter's groot_spec.md, BACK_TO_WORK_SPEC.md, and session discussion.*
+*Updated 2026-03-13: G4 deferred to Project Sage. Added G-APP generalized app module interface. Repo structure and §7 revised for domain-agnostic forkability.*
 *Architecture diagram available as groot_architecture.jsx (first Groot artifact, generated in-chat).*

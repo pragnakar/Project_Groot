@@ -34,6 +34,7 @@ from groot.models import (
     UpdatePageRequest,
     WriteBlobRequest,
 )
+from groot.app_routes import get_app_routes
 from groot.builtin_pages import register_builtin_pages
 from groot.mcp_transport import mount_sse_transport
 from groot.page_server import PageServer
@@ -94,26 +95,38 @@ async def lifespan(app: FastAPI):
     await register_builtin_pages(store)
 
     # Load enabled app modules — graceful skip on missing
+    loaded_apps: dict = {}
     for app_name in settings.apps_list():
         try:
             module = importlib.import_module(f"groot_apps.{app_name}.loader")
-            module.register(registry, page_server, store)
+            await module.register(registry, page_server, store)
+            loaded_apps[app_name] = {
+                "module": module,
+                "meta": getattr(module, "APP_META", {}),
+                "status": "loaded",
+            }
             logger.info("Loaded Groot app module: %s", app_name)
         except ModuleNotFoundError:
             logger.warning("Groot app module not found, skipping: %s", app_name)
         except Exception as e:
+            loaded_apps[app_name] = {"status": "error", "error": str(e)}
             logger.warning("Failed to load Groot app module %s: %s", app_name, e)
 
-    # Mount page server routes (idempotent — replaces on each lifespan restart)
-    _ps_paths = {"/api/pages", "/api/pages/{name}/source", "/api/pages/{name}/meta"}
-    app.router.routes[:] = [r for r in app.router.routes if getattr(r, "path", None) not in _ps_paths]
+    # Mount page server routes + app discovery routes (idempotent)
+    _dynamic_paths = {
+        "/api/pages", "/api/pages/{name}/source", "/api/pages/{name}/meta",
+        "/api/apps", "/api/apps/{name}", "/api/apps/{name}/health",
+    }
+    app.router.routes[:] = [r for r in app.router.routes if getattr(r, "path", None) not in _dynamic_paths]
     app.include_router(page_server.get_routes())
+    app.include_router(get_app_routes())
 
     mount_sse_transport(app, registry, store, settings)
 
     app.state.store = store
     app.state.registry = registry
     app.state.page_server = page_server
+    app.state.loaded_apps = loaded_apps
     app.state.start_time = time.time()
 
     logger.info("Groot runtime started. Apps: %s", settings.apps_list())

@@ -84,9 +84,9 @@ OPEN-HUMAN-REVIEW → CLAUDE AI REVIEW → HUMAN-REVIEW-2 → HAND OFF TO CLAUDE
 ```
 
 Standard path:
-1. Peter creates task in Groot workflow (`901113373077`) at `OPEN-HUMAN-REVIEW`
-2. Peter moves to `CLAUDE AI REVIEW` — claude.ai refines and perfects the spec
-3. claude.ai moves to `HUMAN-REVIEW-2` — Peter reviews
+1. Peter **or** Claude Code creates task in Groot workflow (`901113373077`) at `OPEN-HUMAN-REVIEW`
+2. Peter reviews, makes any changes, then moves to `CLAUDE AI REVIEW`
+3. claude.ai refines and perfects the spec, moves to `HUMAN-REVIEW-2` — Peter reviews
 4. Peter approves, sets status → `HAND OFF TO CLAUDE CODE`
 5. Claude Code picks up task, builds, sets status → `TESTING-LOCAL`
 6. Claude Code tests locally; on pass or fail, adds comment and sets status → `HUMAN-REVIEW-3`
@@ -154,8 +154,8 @@ These statuses apply to the Groot workflow list (`901113373077`) in the Projects
 
 | Status | Who moves it | Action |
 |---|---|---|
-| `OPEN-HUMAN-REVIEW` | Peter | Peter creates task here |
-| `CLAUDE AI REVIEW` | Peter | Peter moves it here; claude.ai refines spec |
+| `OPEN-HUMAN-REVIEW` | Peter or Claude Code | Either creates task here; Peter reviews and makes any changes before moving forward |
+| `CLAUDE AI REVIEW` | Peter | Peter moves it here; claude.ai refines and perfects the spec |
 | `HUMAN-REVIEW-2` | claude.ai | claude.ai moves it here after refining; Peter reviews |
 | `HAND OFF TO CLAUDE CODE` | Peter | Peter approves spec and hands off; Claude Code picks up and builds |
 | `TESTING-LOCAL` | Claude Code | Claude Code sets this after build; tests locally |

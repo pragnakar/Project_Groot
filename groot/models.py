@@ -1,8 +1,8 @@
 """Pydantic v2 models for all Groot core tool I/O."""
 
-from typing import Any
+from typing import Any, Callable
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 # ---------------------------------------------------------------------------
@@ -112,6 +112,21 @@ class ToolError(BaseModel):
     error: str
     detail: str = ""
     tool_name: str = ""
+
+
+# ---------------------------------------------------------------------------
+# Tool registry models
+# ---------------------------------------------------------------------------
+
+class ToolDefinition(BaseModel):
+    """Metadata for a registered tool — used for MCP registration and introspection."""
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    name: str
+    description: str
+    namespace: str = "core"
+    parameters: dict[str, Any] = Field(default_factory=dict)
+    fn: Callable = Field(exclude=True)  # excluded from serialization
 
 
 # ---------------------------------------------------------------------------

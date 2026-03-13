@@ -4,11 +4,14 @@ import importlib
 import logging
 import time
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
+
+_SHELL_DIR = Path(__file__).parent.parent / "groot-shell"
 
 from groot.artifact_store import ArtifactStore
 from groot.auth import AuthContext, verify_api_key
@@ -172,6 +175,25 @@ def get_uptime(request: Request) -> float:
 @app.get("/health")
 async def health():
     return {"status": "ok", "version": "0.1.0"}
+
+
+# ---------------------------------------------------------------------------
+# React shell — SPA routes (must come after API routes so they don't shadow)
+# ---------------------------------------------------------------------------
+
+@app.get("/")
+async def shell_root():
+    return FileResponse(_SHELL_DIR / "index.html")
+
+
+@app.get("/artifacts")
+async def shell_artifacts():
+    return FileResponse(_SHELL_DIR / "index.html")
+
+
+@app.get("/apps/{path:path}")
+async def shell_apps(path: str):
+    return FileResponse(_SHELL_DIR / "index.html")
 
 
 # ---------------------------------------------------------------------------

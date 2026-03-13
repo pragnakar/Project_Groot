@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Groot</title>
+
+  <!-- React 18 CDN -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <!-- Babel standalone for client-side JSX transform -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #0d1117;
+      --surface:  #161b22;
+      --border:   #30363d;
+      --accent:   #4ade80;
+      --accent2:  #6366f1;
+      --text:     #e2e8f0;
+      --muted:    #8b949e;
+      --error:    #ff6b6b;
+      --warn:     #f0a854;
+    }
+
+    html, body { height: 100%; background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; font-size: 15px; }
+
+    #root { display: flex; flex-direction: column; min-height: 100vh; }
+
+    /* Nav */
+    nav {
+      display: flex; align-items: center; gap: 1.5rem;
+      padding: 0 1.5rem; height: 52px;
+      background: var(--surface); border-bottom: 1px solid var(--border);
+      position: sticky; top: 0; z-index: 100;
+    }
+    nav .logo { color: var(--accent); font-weight: 700; font-size: 1.1rem; letter-spacing: .04em; text-decoration: none; }
+    nav a { color: var(--muted); text-decoration: none; font-size: .9rem; transition: color .15s; }
+    nav a:hover { color: var(--text); }
+    nav a.active { color: var(--accent); }
+    nav .page-chip {
+      margin-left: auto; padding: .2rem .7rem;
+      background: var(--border); border-radius: 999px;
+      font-size: .8rem; color: var(--muted);
+    }
+
+    /* Main */
+    main { flex: 1; padding: 2rem 2.5rem; max-width: 1100px; width: 100%; margin: 0 auto; }
+
+    h1 { font-size: 1.6rem; font-weight: 600; margin-bottom: .75rem; }
+    h2 { font-size: 1.2rem; font-weight: 600; margin-bottom: .5rem; color: var(--muted); }
+    p  { line-height: 1.6; color: var(--muted); }
+
+    /* Cards */
+    .card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 8px; padding: 1.5rem; margin-bottom: 1rem;
+    }
+
+    /* Status states */
+    .loading { color: var(--muted); padding: 3rem 0; text-align: center; }
+    .error-box {
+      background: #2a1015; border: 1px solid var(--error);
+      border-radius: 8px; padding: 1.5rem; color: var(--error);
+    }
+    .error-box pre { font-size: .8rem; margin-top: .5rem; opacity: .8; white-space: pre-wrap; }
+    .btn {
+      margin-top: 1rem; padding: .4rem 1rem;
+      background: var(--surface); border: 1px solid var(--border);
+      color: var(--text); border-radius: 6px; cursor: pointer; font-size: .85rem;
+    }
+    .btn:hover { border-color: var(--accent); color: var(--accent); }
+
+    /* Placeholder */
+    .placeholder { opacity: .45; font-size: .9rem; margin-top: .5rem; }
+    .accent { color: var(--accent); }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    // ---------------------------------------------------------------------------
+    // Hash-based router
+    // ---------------------------------------------------------------------------
+    function useHash() {
+      const [hash, setHash] = React.useState(window.location.hash || '#/');
+      React.useEffect(() => {
+        const h = () => setHash(window.location.hash || '#/');
+        window.addEventListener('hashchange', h);
+        return () => window.removeEventListener('hashchange', h);
+      }, []);
+      return hash;
+    }
+
+    function parseRoute(hash) {
+      const path = hash.replace(/^#/, '') || '/';
+      if (path === '/' || path === '') return { route: 'dashboard' };
+      if (path === '/artifacts')       return { route: 'artifacts' };
+      const m = path.match(/^\/apps\/([^/?#]+)/);
+      if (m) return { route: 'page', name: m[1] };
+      return { route: 'not-found' };
+    }
+
+    // ---------------------------------------------------------------------------
+    // Error boundary
+    // ---------------------------------------------------------------------------
+    class ErrorBoundary extends React.Component {
+      constructor(props) { super(props); this.state = { hasError: false, error: null }; }
+      static getDerivedStateFromError(e) { return { hasError: true, error: e }; }
+      render() {
+        if (this.state.hasError) {
+          return (
+            <div className="error-box">
+              <strong>Page failed to render</strong>
+              <pre>{this.state.error?.message}</pre>
+              <button className="btn" onClick={() => this.setState({ hasError: false, error: null })}>
+                Retry
+              </button>
+            </div>
+          );
+        }
+        return this.props.children;
+      }
+    }
+
+    // ---------------------------------------------------------------------------
+    // DynamicPage — fetches JSX, transforms with Babel, evaluates, renders
+    // ---------------------------------------------------------------------------
+    function DynamicPage({ name }) {
+      const [state, setState] = React.useState({ status: 'loading' });
+
+      React.useEffect(() => {
+        setState({ status: 'loading' });
+        fetch(`/api/pages/${encodeURIComponent(name)}/source`)
+          .then(res => {
+            if (!res.ok) throw Object.assign(new Error(`Page not found: ${name}`), { type: 'not-found' });
+            return res.text();
+          })
+          .then(jsx => {
+            try {
+              // Try to find a named Page component first
+              const code = Babel.transform(jsx, { presets: ['react'] }).code;
+              const tryFn = new Function('React', `"use strict"; ${code}; return typeof Page !== 'undefined' ? Page : undefined;`);
+              let Component = tryFn(React);
+
+              if (!Component) {
+                // Wrap bare JSX as a Page component
+                const wrapped = Babel.transform(`function Page(){return(${jsx.trim()});}`, { presets: ['react'] }).code;
+                const wrapFn = new Function('React', `"use strict"; ${wrapped}; return Page;`);
+                Component = wrapFn(React);
+              }
+              setState({ status: 'ready', Component });
+            } catch (e) {
+              setState({ status: 'transform-error', message: e.message });
+            }
+          })
+          .catch(e => {
+            const status = e.type === 'not-found' ? 'not-found' : 'fetch-error';
+            setState({ status, message: e.message });
+          });
+      }, [name]);
+
+      if (state.status === 'loading') return <div className="loading">Loading <em>{name}</em>…</div>;
+      if (state.status === 'not-found') return (
+        <div className="error-box">
+          <strong>Page not found: {name}</strong>
+          <p style={{marginTop:'.5rem', color:'var(--muted)'}}>
+            No registered page with this name. Create one via the API.
+          </p>
+        </div>
+      );
+      if (state.status === 'fetch-error') return (
+        <div className="error-box"><strong>Failed to load page</strong><pre>{state.message}</pre></div>
+      );
+      if (state.status === 'transform-error') return (
+        <div className="error-box"><strong>JSX transform error</strong><pre>{state.message}</pre></div>
+      );
+
+      const { Component } = state;
+      return <ErrorBoundary><Component /></ErrorBoundary>;
+    }
+
+    // ---------------------------------------------------------------------------
+    // Placeholder pages (replaced in G3-3)
+    // ---------------------------------------------------------------------------
+    function GrootDashboard() {
+      return (
+        <div>
+          <h1><span className="accent">Groot</span> Dashboard</h1>
+          <p className="placeholder">Built-in dashboard coming in G3-3.</p>
+          <div className="card" style={{marginTop:'1.5rem'}}>
+            <h2>Quick links</h2>
+            <p><a href="#/artifacts" style={{color:'var(--accent2)'}}>Artifact Browser →</a></p>
+          </div>
+        </div>
+      );
+    }
+
+    function ArtifactBrowser() {
+      return (
+        <div>
+          <h1>Artifact Browser</h1>
+          <p className="placeholder">Full artifact browser coming in G3-3.</p>
+        </div>
+      );
+    }
+
+    // ---------------------------------------------------------------------------
+    // Navigation
+    // ---------------------------------------------------------------------------
+    function Nav({ current }) {
+      return (
+        <nav>
+          <a className="logo" href="#/">Groot</a>
+          <a href="#/"         className={current.route === 'dashboard' ? 'active' : ''}>Dashboard</a>
+          <a href="#/artifacts" className={current.route === 'artifacts' ? 'active' : ''}>Artifacts</a>
+          {current.route === 'page' && <span className="page-chip">{current.name}</span>}
+        </nav>
+      );
+    }
+
+    // ---------------------------------------------------------------------------
+    // App
+    // ---------------------------------------------------------------------------
+    function App() {
+      const hash    = useHash();
+      const current = parseRoute(hash);
+      return (
+        <div id="app">
+          <Nav current={current} />
+          <main>
+            {current.route === 'dashboard'  && <GrootDashboard />}
+            {current.route === 'artifacts'  && <ArtifactBrowser />}
+            {current.route === 'page'       && <DynamicPage key={current.name} name={current.name} />}
+            {current.route === 'not-found'  && <div className="error-box"><strong>Route not found</strong></div>}
+          </main>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>

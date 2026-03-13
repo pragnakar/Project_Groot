@@ -42,10 +42,13 @@ def test_invalid_names_raise():
 # GET /api/pages — list
 # ---------------------------------------------------------------------------
 
-def test_list_pages_empty(client, auth_headers):
+def test_list_pages_returns_builtin_pages(client, auth_headers):
+    # Built-in pages (groot-dashboard, groot-artifacts) are registered at startup
     resp = client.get("/api/pages")
     assert resp.status_code == 200
-    assert resp.json() == []
+    names = [p["name"] for p in resp.json()]
+    assert "groot-dashboard" in names
+    assert "groot-artifacts" in names
 
 
 def test_list_pages_after_create(client, auth_headers):

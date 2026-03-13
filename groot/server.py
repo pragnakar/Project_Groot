@@ -34,6 +34,7 @@ from groot.models import (
     UpdatePageRequest,
     WriteBlobRequest,
 )
+from groot.builtin_pages import register_builtin_pages
 from groot.mcp_transport import mount_sse_transport
 from groot.page_server import PageServer
 from groot.tools import ToolRegistry, register_core_tools
@@ -90,6 +91,7 @@ async def lifespan(app: FastAPI):
     register_core_tools(registry, store)
 
     page_server = PageServer(store)
+    await register_builtin_pages(store)
 
     # Load enabled app modules — graceful skip on missing
     for app_name in settings.apps_list():

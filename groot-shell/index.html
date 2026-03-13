@@ -185,28 +185,14 @@
     }
 
     // ---------------------------------------------------------------------------
-    // Placeholder pages (replaced in G3-3)
+    // Built-in pages — delegated to DynamicPage (served from artifact store)
     // ---------------------------------------------------------------------------
     function GrootDashboard() {
-      return (
-        <div>
-          <h1><span className="accent">Groot</span> Dashboard</h1>
-          <p className="placeholder">Built-in dashboard coming in G3-3.</p>
-          <div className="card" style={{marginTop:'1.5rem'}}>
-            <h2>Quick links</h2>
-            <p><a href="#/artifacts" style={{color:'var(--accent2)'}}>Artifact Browser →</a></p>
-          </div>
-        </div>
-      );
+      return <DynamicPage key="groot-dashboard" name="groot-dashboard" />;
     }
 
     function ArtifactBrowser() {
-      return (
-        <div>
-          <h1>Artifact Browser</h1>
-          <p className="placeholder">Full artifact browser coming in G3-3.</p>
-        </div>
-      );
+      return <DynamicPage key="groot-artifacts" name="groot-artifacts" />;
     }
 
     // ---------------------------------------------------------------------------

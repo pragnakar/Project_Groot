@@ -86,3 +86,28 @@ Notable decisions:
   - list/bool tool return values wrapped in {"result": ...} (MCP structured content requires dict)
 Next: Peter reviews phase gate (868hw9111). On approval → G3 (page server + React shell).
 Evidence: pytest 125 passed. Both G2 tasks COMPLETE in ClickUp. SHA 87a5845 merged to main.
+
+---
+
+2026-03-13 | phase-G3 | complete
+---
+Context: G2 complete (125 tests). Phase gate (868hw9111) at OPEN-HUMAN-REVIEW. G3 tasks staged in ClickUp by claude.ai, handed off to Claude Code on branch feature/g3-page-server.
+Work:
+  G3-1 (868hw897m) — groot/page_server.py: PageServer class, _validate_name(), register_static() with upsert pattern, get_routes() returning unauthenticated APIRouter (GET /api/pages, /api/pages/{name}/source, /api/pages/{name}/meta). groot/artifact_store.py: get_page_source() added. server.py lifespan updated: register_builtin_pages, include_router(page_server.get_routes()), idempotent route replacement. 15 tests.
+  G3-2 (868hw89bx) — groot-shell/index.html: self-contained React 18 shell using CDN React/ReactDOM + Babel standalone. Hash-based router (#/ → dashboard, #/artifacts → artifact browser, #/apps/{name} → DynamicPage). DynamicPage: fetches /api/pages/{name}/source, Babel-transforms JSX, evals named Page component or wraps bare JSX, 4 error states. ErrorBoundary class component with retry. Dark theme matching groot_architecture.jsx. server.py: SPA catch-all routes (GET /, /artifacts, /apps/{path}) serving index.html via FileResponse. 8 tests.
+  G3-3 (868hw89gx) — groot/builtin_pages.py: groot-dashboard JSX (system state stats grid, registered pages list, recent events, quick links) + groot-artifacts JSX (tabs: Blobs/Schemas/Events, inline inspect). register_builtin_pages() upserts both at startup. server.py: calls register_builtin_pages(store) in lifespan. groot-shell/index.html: GrootDashboard and ArtifactBrowser components delegate to DynamicPage. tests/test_g3_integration.py: 12 integration tests covering full create→serve→update→delete cycle. 12 tests.
+Result:
+  Branch: feature/g3-page-server @ SHA d1ed76c — merged to main
+  Tag: groot-v0.1.0 created on main
+  Repo: github.com/pragnakar/Project_Groot
+  Full suite: 160/160 passed — zero failures, zero warnings
+  Groot runtime is functionally complete: HTTP API + MCP stdio + MCP SSE + page server + React shell
+Notable decisions:
+  - PageServer routes are unauthenticated (GET only, read-only) — shell fetches JSX without a key
+  - Built-in pages stored as Python multiline strings in builtin_pages.py, upserted on every lifespan start (handles server restarts cleanly)
+  - index.html is fully self-contained (no external App.jsx) — Babel CDN transforms JSX in the browser
+  - StaticFiles mount removed: shell has no external assets, catch-all routes (FileResponse) are sufficient and avoid shadowing lifespan-added /api/pages routes
+  - DynamicPage supports both named Page components and bare JSX fragments
+  - Built-in pages fetch /api/system/state (auth-gated): works in dev bypass mode, gracefully handles 401 in production
+Next: Peter reviews G3 output. On approval → G4 (Sage app module registers into the completed runtime).
+Evidence: pytest 160 passed. All G3 tasks COMPLETE in ClickUp. SHA d1ed76c merged to main. Tag groot-v0.1.0 pushed to remote.

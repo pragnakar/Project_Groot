@@ -1,7 +1,7 @@
 """Example app tools."""
 
 from groot.artifact_store import ArtifactStore
-from groot_apps.example.models import EchoResult
+from groot_apps._example.models import EchoResult
 
 
 async def echo_tool(store: ArtifactStore, message: str) -> EchoResult:

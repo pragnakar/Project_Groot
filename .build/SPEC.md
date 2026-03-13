@@ -7,14 +7,14 @@
 
 ## Project Overview
 
-Groot is a domain-agnostic LLM runtime environment built on FastAPI. It gives any MCP-compatible LLM agent a persistent execution layer: a SQLite-backed artifact store, a validated tool interface (12 core tools), a React page server, and a pluggable domain module system. The LLM is always external — Claude, ChatGPT, or any MCP client calls Groot over MCP (stdio or SSE) or REST HTTP. Groot never embeds a model. Domain tools and pages register at startup as app modules. `sage/` is the first Groot app, wrapping sage-solver-core as a Groot domain module.
+Groot is a domain-agnostic LLM runtime environment built on FastAPI. It gives any MCP-compatible LLM agent a persistent execution layer: a SQLite-backed artifact store, a validated tool interface (12 core tools), a React page server, and a pluggable domain module system. The LLM is always external — Claude, ChatGPT, or any MCP client calls Groot over MCP (stdio or SSE) or REST HTTP. Groot never embeds a model. Domain tools and pages register at startup as app modules via a generalized protocol (`AppProtocol`). An example scaffold ships with Groot; domain-specific apps (sage, hermes, etc.) integrate from their own repositories.
 
 ---
 
 ## Goals
 
 1. Ship a working Groot runtime (FastAPI + SQLite + 12 tools + MCP + React shell) in ≤5 Claude Code sessions
-2. Deploy sage-cloud v0.2 as the first Groot app module, replacing the standalone sage-cloud app
+2. Ship a generalized app module interface so any developer or AI can fork Groot and build their own app
 3. Validate the flywheel: artifacts accumulated across sessions, pages registered and served live
 
 ## Non-Goals (v0.1)
@@ -22,7 +22,7 @@ Groot is a domain-agnostic LLM runtime environment built on FastAPI. It gives an
 - Multi-tenancy, user accounts, or role-based access (API key per deployment only)
 - Vite/Webpack build pipeline — Babel standalone CDN only
 - Database migration tooling — schema is created fresh on first startup
-- Hermes, Athena, or any Groot app other than sage/
+- Any domain-specific app module (sage, hermes, athena) — these integrate from their own repos
 - Production-grade JSX sandboxing
 
 ---
@@ -42,7 +42,8 @@ Groot is a domain-agnostic LLM runtime environment built on FastAPI. It gives an
 | `groot/page_server.py` | Dynamic route registration; JSX delivery endpoint |
 | `groot/config.py` | pydantic-settings Settings class; env var config |
 | `groot-shell/` | React shell app — route shell, Babel standalone JSX eval, built-in pages |
-| `groot-apps/sage/` | sage-cloud v0.2 as Groot app module — tools + pages + loader |
+| `groot_apps/_example/` | Example app scaffold — minimal demo tool + page + README |
+| `docs/APP_MODULE_GUIDE.md` | Developer guide for building Groot app modules |
 
 ### Data Flow
 
@@ -134,20 +135,30 @@ Groot is a domain-agnostic LLM runtime environment built on FastAPI. It gives an
 
 ---
 
-### Phase G4 — Sage App Module (PLANNED)
+### Phase G4 — Sage App Module ❌ DEFERRED
 
-**Objective:** Deploy sage-cloud v0.2 as the first Groot app module using sage-solver-core.
+> **Status:** Deferred to Project Sage's own repository (decision 2026-03-13).
+> **Rationale:** Sage has its own development lifecycle, dependency tree, and release cadence. Coupling it into Groot would violate domain-agnosticism. Sage will consume Groot as a dependency and integrate via the generalized app module interface.
 
-**Branch:** `feature/g4-sage-module`
+**Original tasks G4-1, G4-2, G4-3:** Closed with deferral comments in ClickUp.
 
-*Spec to be detailed after Phase G3 approval.*
+---
 
-**Key deliverables (stub):**
-- `groot-apps/sage/` — tools.py, pages/, loader.py
-- 7 sage tools wrapping sage-solver-core (same as sage-mcp, per-request state)
-- 3 sage pages: dashboard, result, sensitivity
-- Full flow: LLM calls `solve_optimization` → result stored → `/apps/sage-result` renders
-- Tags: `groot-v0.1.0` + `sage-v0.2.0`
+### Phase G-APP — Generalized App Module Interface (Replaces G4)
+
+**Objective:** Ship the generalized app module protocol, example scaffold, and developer documentation so any developer or AI agent can fork Groot and build their own app module.
+
+**Branch:** `feature/g-app-module-interface`
+
+**ClickUp task:** 868hw9808 (at HUMAN-REVIEW-2)
+
+**Key deliverables:**
+- `groot/app_protocol.py` — `AppProtocol` (Python Protocol class) with `register(tool_registry, page_server, store)`
+- `groot_apps/_example/loader.py` — minimal working example (one demo tool + one demo page)
+- App discovery and validation in `groot/server.py` — clear errors for bad loaders
+- `GET /api/apps` and `GET /api/apps/{name}` — introspection endpoints
+- `docs/APP_MODULE_GUIDE.md` — complete developer guide
+- Tag: `groot-v0.1.0` (after G3 + G-APP pass)
 
 ---
 
@@ -186,10 +197,12 @@ Full SQL in `GROOT_SPEC_V0.1.md` section 5.
 | GET | `/api/pages/:name/source` | Serve JSX source | G3 |
 | GET | `/` | React shell | G3 |
 | GET | `/apps/:name` | Render registered page | G3 |
+| GET | `/api/apps` | List loaded app modules | G-APP |
+| GET | `/api/apps/:name` | App detail (tools, pages, status) | G-APP |
 
 ---
 
 ## Open Questions
 
-- [ ] MCP SDK version — confirm latest compatible with FastAPI SSE — *Decision pending G2*
-- [ ] sage-solver-core version to pin — confirm v0.1.3 is current — *Decision pending G4*
+- [ ] MCP SDK version — confirm latest compatible with FastAPI SSE; check if SSE deprecated in favor of Streamable HTTP — *Decision pending G2*
+- [x] ~~sage-solver-core version to pin~~ — *No longer applicable: G4 deferred to Project Sage repo*

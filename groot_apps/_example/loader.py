@@ -1,7 +1,7 @@
 """Example Groot app module loader — reference implementation.
 
 Copy this directory to groot_apps/myapp/ and adapt to build your own app.
-Enable with GROOT_APPS=example in your .env file.
+Enable with GROOT_APPS=_example in your .env file.
 """
 
 from pathlib import Path
@@ -9,7 +9,7 @@ from pathlib import Path
 from groot.artifact_store import ArtifactStore
 from groot.page_server import PageServer
 from groot.tools import ToolRegistry
-from groot_apps.example.tools import echo_tool
+from groot_apps._example.tools import echo_tool
 
 APP_META = {
     "description": "Minimal reference app — one tool, one page",
@@ -25,8 +25,8 @@ async def register(
     store: ArtifactStore,
 ) -> None:
     """Register example tools and pages into the Groot runtime."""
-    tool_registry.register(echo_tool, namespace="example")
-    await page_server.register_static("hello", str(_PAGES_DIR / "hello.jsx"), app_name="example")
+    tool_registry.register(echo_tool, namespace="_example")
+    await page_server.register_static("hello", str(_PAGES_DIR / "hello.jsx"), app_name="_example")
 
 
 async def health_check() -> dict:

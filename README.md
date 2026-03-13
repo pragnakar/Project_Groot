@@ -68,6 +68,8 @@ All tool routes require authentication via `X-Groot-Key` header or `?key=` query
 | `/api/tools/call` | POST | Yes | Generic tool call endpoint |
 | `/api/system/state` | GET | Yes | Runtime state (uptime, counts) |
 | `/api/system/artifacts` | GET | Yes | Full artifact inventory |
+| `/api/apps` | GET | No | List loaded app modules |
+| `/api/apps/{name}` | GET | No | App detail (tools, pages, status) |
 | `/mcp/sse` | GET | `?key=` | MCP SSE transport |
 | `/mcp/messages` | POST | — | MCP SSE message relay |
 
@@ -104,7 +106,7 @@ Connect to `http://localhost:8000/mcp/sse?key=<api-key>` from any SSE-capable MC
 | `GROOT_API_KEYS` | `groot_sk_dev_key_01` | Comma-separated API keys |
 | `GROOT_DB_PATH` | `groot.db` | SQLite database path |
 | `GROOT_ARTIFACT_DIR` | `artifacts` | Blob storage directory |
-| `GROOT_APPS` | `sage` | Comma-separated app modules to load |
+| `GROOT_APPS` | `_example` | Comma-separated app modules to load |
 | `GROOT_HOST` | `0.0.0.0` | HTTP server host |
 | `GROOT_PORT` | `8000` | HTTP server port |
 | `GROOT_ENV` | `development` | `development` or `production` |
@@ -129,8 +131,13 @@ groot/
   builtin_pages.py   — Built-in page JSX (groot-dashboard, groot-artifacts)
   __main__.py        — Entry point (python -m groot)
 
-groot-apps/
-  sage/              — Sage domain app module (G4, planned)
+groot_apps/
+  _example/          — Example app scaffold (ships with Groot)
+    loader.py        — Minimal register() — one demo tool + one demo page
+    README.md        — "Build Your First Groot App" guide
+
+docs/
+  APP_MODULE_GUIDE.md — Developer guide: how to build a Groot app module
 
 groot-shell/
   index.html         — Self-contained React 18 shell (hash router, DynamicPage, Babel CDN)
@@ -160,7 +167,22 @@ tests/
 | G1 | Runtime core: FastAPI + SQLite + 14 tools + auth | **Complete** | 105 |
 | G2 | MCP transport: stdio + SSE | **Complete** | 125 total |
 | G3 | Page server + React shell + built-in pages | **Complete** | 160 total |
-| G4 | Sage app module | Planned | — |
+| G-APP | Generalized app module interface + example scaffold + docs | **Complete** | — |
+| ~~G4~~ | ~~Sage app module~~ | **Deferred** | — |
+
+> **G4 note:** Sage is a domain-specific optimization engine with its own lifecycle. It was deferred to [Project Sage](https://github.com/pragnakar/Project_Sage) and will integrate with Groot as an external app module via the `register()` protocol. This keeps Groot clean, forkable, and domain-agnostic.
+
+## Building your own Groot app
+
+Groot ships with a generalized app module interface. Any developer or AI agent can build a Groot app:
+
+1. Create `groot_apps/{your_app}/loader.py`
+2. Implement `async def register(tool_registry, page_server, store)`
+3. Register your tools and pages
+4. Set `GROOT_APPS=your_app` in `.env`
+5. Run `python -m groot`
+
+See `docs/APP_MODULE_GUIDE.md` for the full guide, or copy `groot_apps/_example/` as a starting point.
 
 ---
 

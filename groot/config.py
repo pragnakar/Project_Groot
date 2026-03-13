@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     GROOT_API_KEYS: str = "groot_sk_dev_key_01"
     GROOT_DB_PATH: str = "groot.db"
     GROOT_ARTIFACT_DIR: str = "artifacts"
-    GROOT_APPS: str = "sage"
+    GROOT_APPS: str = "_example"
     GROOT_HOST: str = "0.0.0.0"
     GROOT_PORT: int = 8000
     GROOT_ENV: str = "development"

@@ -28,12 +28,12 @@ async def ps():
 # ---------------------------------------------------------------------------
 
 def test_valid_names_pass():
-    for name in ("dashboard", "my-page", "sage-result", "Page1", "a"):
+    for name in ("dashboard", "my-page", "sage-result", "Page1", "a", "_example", "under_score"):
         _validate_name(name)  # must not raise
 
 
 def test_invalid_names_raise():
-    for name in ("-bad", "has space", "under_score", "", "dot.name"):
+    for name in ("-bad", "has space", "", "dot.name"):
         with pytest.raises(ValueError):
             _validate_name(name)
 

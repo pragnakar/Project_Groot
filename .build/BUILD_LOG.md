@@ -109,5 +109,36 @@ Notable decisions:
   - StaticFiles mount removed: shell has no external assets, catch-all routes (FileResponse) are sufficient and avoid shadowing lifespan-added /api/pages routes
   - DynamicPage supports both named Page components and bare JSX fragments
   - Built-in pages fetch /api/system/state (auth-gated): works in dev bypass mode, gracefully handles 401 in production
-Next: Peter reviews G3 output. On approval → G4 (Sage app module registers into the completed runtime).
+Next: Peter reviews G3 output. On approval → G-APP (generalized app module interface).
 Evidence: pytest 160 passed. All G3 tasks COMPLETE in ClickUp. SHA d1ed76c merged to main. Tag groot-v0.1.0 pushed to remote.
+
+---
+
+2026-03-13 | phase-G-APP | complete
+---
+Context: G3 complete (160 tests, groot-v0.1.0 tagged). G-APP task (868hw9808) staged in ClickUp by claude.ai and handed off to Claude Code on branch feature/g-app-interface.
+Work:
+  G-APP (868hw9808) — Generalized app module interface, discovery API, example scaffold, and developer guide.
+    groot/app_interface.py: GrootAppModule Protocol (documentation-first, runtime_checkable, not enforced).
+    groot/app_routes.py: unauthenticated GET /api/apps (AppsResponse with core info), GET /api/apps/{name} (AppDetail with tools + pages), GET /api/apps/{name}/health (delegates to module.health_check()).
+    groot/models.py: AppInfo, AppDetail, AppHealth, CoreInfo, AppsResponse, ToolInfo models added.
+    groot/server.py: lifespan now tracks loaded_apps dict (module, meta, status); register() calls are awaited; app_routes mounted idempotently alongside page_server routes; app.state.loaded_apps persisted.
+    groot_apps/_example/: complete reference implementation — echo_tool, EchoResult, hello.jsx static page, APP_META, health_check(). Directory uses _ prefix (Python scaffold convention).
+    docs/APP_MODULE_GUIDE.md: self-sufficient developer guide covering contract, tool/page patterns, testing, API reference, FAQ.
+    groot/page_server.py: _NAME_RE updated to allow underscores (required for _example-hello page names).
+    groot/config.py: GROOT_APPS default updated from 'sage' to '_example'.
+    tests/test_app_interface.py: 12 tests — list/detail/health endpoints, namespace isolation, tool callability, graceful degradation for missing modules.
+Result:
+  Branch: feature/g-app-interface @ SHA a9a5f0a — merged to main @ SHA 22986a5
+  Repo: github.com/pragnakar/Project_Groot
+  Full suite: 172/172 passed — zero failures, zero warnings
+  Groot is now forkable: any developer or AI can copy _example/, implement register(), and integrate in <30 minutes
+Notable decisions:
+  - Protocol is documentation-only (runtime_checkable but not enforced) — avoids forcing isinstance checks or import overhead on app authors
+  - App pages filtered by prefix convention: pages named {app_name}-* belong to that app
+  - Namespace isolation verified: _example tools register under '_example' namespace, core tools_count stays at 14
+  - ModuleNotFoundError on load = silently skipped (app absent from list); other exceptions = recorded as status:'error'
+  - _example directory convention signals "reference scaffold" to developers without polluting the namespace
+  - G4 (Sage) deferred to Project Sage repo — will integrate via APP_GUIDE contract as an external module
+Next: Project Sage follows APP_MODULE_GUIDE.md contract to integrate as a Groot app module. Groot runtime is complete.
+Evidence: pytest 172 passed. Task 868hw9808 COMPLETE in ClickUp. SHA 22986a5 on main (remote).

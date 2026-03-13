@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "groot": {
+      "command": "python",
+      "args": ["-m", "groot", "--mcp-stdio"],
+      "env": {
+        "GROOT_API_KEYS": "groot_sk_dev_key_01"
+      }
+    }
+  }
+}

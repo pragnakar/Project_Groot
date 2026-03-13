@@ -159,3 +159,53 @@ class LogEventRequest(BaseModel):
     message: str
     level: str = "info"
     context: dict[str, Any] = Field(default_factory=dict)
+
+
+# ---------------------------------------------------------------------------
+# App discovery models
+# ---------------------------------------------------------------------------
+
+class ToolInfo(BaseModel):
+    """Minimal tool descriptor for app detail responses."""
+    name: str
+    description: str
+    parameters: dict[str, Any] = Field(default_factory=dict)
+
+
+class CoreInfo(BaseModel):
+    """Groot core runtime summary."""
+    tools_count: int
+    pages_count: int
+    version: str
+
+
+class AppInfo(BaseModel):
+    """Summary entry for GET /api/apps list."""
+    name: str
+    namespace: str
+    tools_count: int
+    pages_count: int
+    status: str  # "loaded" | "error"
+    description: str = ""
+
+
+class AppDetail(BaseModel):
+    """Full detail for GET /api/apps/{name}."""
+    name: str
+    namespace: str
+    tools: list[ToolInfo] = Field(default_factory=list)
+    pages: list[PageMeta] = Field(default_factory=list)
+    status: str
+
+
+class AppHealth(BaseModel):
+    """Response for GET /api/apps/{name}/health."""
+    name: str
+    status: str
+    checks: dict[str, Any] = Field(default_factory=dict)
+
+
+class AppsResponse(BaseModel):
+    """Response for GET /api/apps."""
+    apps: list[AppInfo] = Field(default_factory=list)
+    core: CoreInfo

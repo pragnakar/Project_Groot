@@ -31,6 +31,7 @@ from groot.models import (
     UpdatePageRequest,
     WriteBlobRequest,
 )
+from groot.mcp_transport import mount_sse_transport
 from groot.tools import ToolRegistry, register_core_tools
 
 logger = logging.getLogger(__name__)
@@ -94,6 +95,8 @@ async def lifespan(app: FastAPI):
             logger.warning("Groot app module not found, skipping: %s", app_name)
         except Exception as e:
             logger.warning("Failed to load Groot app module %s: %s", app_name, e)
+
+    mount_sse_transport(app, registry, store, settings)
 
     app.state.store = store
     app.state.registry = registry

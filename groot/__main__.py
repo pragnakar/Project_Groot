@@ -1,9 +1,10 @@
 """Groot Runtime entry point.
 
 Usage:
-  python -m groot                    # Start HTTP server (uvicorn)
-  python -m groot --mcp-stdio        # Start MCP stdio transport
-  python -m groot --mcp-stdio --http # Both (HTTP in background, stdio in foreground)
+  python -m groot                    # HTTP server + SSE transport (default)
+  python -m groot --port 8001        # Custom port
+  python -m groot --mcp-stdio        # MCP stdio transport only (for Claude Desktop)
+  python -m groot --mcp-stdio --http # Both: stdio foreground, HTTP background
 """
 
 import argparse
@@ -51,6 +52,7 @@ def main():
         action="store_true",
         help="Start HTTP server in background thread (only valid with --mcp-stdio)",
     )
+    parser.add_argument("--port", type=int, default=None, help="HTTP server port (overrides settings)")
     args = parser.parse_args()
 
     if args.mcp_stdio:
@@ -58,10 +60,11 @@ def main():
             import threading
             from groot.config import get_settings
             settings = get_settings()
+            port = args.port if args.port is not None else settings.GROOT_PORT
 
             def _run_http():
                 import uvicorn
-                uvicorn.run("groot.server:app", host=settings.GROOT_HOST, port=settings.GROOT_PORT)
+                uvicorn.run("groot.server:app", host=settings.GROOT_HOST, port=port)
 
             t = threading.Thread(target=_run_http, daemon=True)
             t.start()
@@ -76,10 +79,11 @@ def main():
         import uvicorn
         from groot.config import get_settings
         settings = get_settings()
+        port = args.port if args.port is not None else settings.GROOT_PORT
         uvicorn.run(
             "groot.server:app",
             host=settings.GROOT_HOST,
-            port=settings.GROOT_PORT,
+            port=port,
             reload=True,
         )
 

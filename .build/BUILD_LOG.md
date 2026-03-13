@@ -38,3 +38,28 @@ Meta-prompts loaded:
   ✓ DevOps (production operation)
   ✓ Testing Strategy (pytest, integration verification)
   ✓ Documentation
+
+---
+
+2026-03-13 | phase-G1 | complete
+---
+Context: Scaffold initialized. G1 tasks staged in ClickUp Groot workflow list (901113373077) by claude.ai, approved by Peter, handed off to Claude Code.
+Work:
+  G1-1 (868hw87m7) — Project scaffold, pyproject.toml, groot/config.py, groot/models.py, all stub modules. 31 tests.
+  G1-2 (868hw87xp) — groot/artifact_store.py: ArtifactStore class, full async SQLite CRUD for blobs/pages/schemas/events. 24 tests.
+  G1-3 (868hw8841) — groot/auth.py: verify_api_key FastAPI dependency, X-Groot-Key header + ?key= query param, dev bypass, production guard. 9 tests.
+  G1-4 (868hw88dq) — groot/tools.py: ToolRegistry + 14 core tools + register_core_tools(). Tool metadata (name, description, JSON Schema params) ready for MCP in G2. 22 tests.
+  G1-5 (868hw88n2) — groot/server.py: FastAPI lifespan, all HTTP routes under /api/, generic /api/tools/call endpoint, exception handlers, integration tests. 19 tests.
+Result:
+  Branch: feature/g1-runtime-core @ SHA 79ac953
+  Repo: github.com/pragnakar/Project_Groot
+  Full suite: 105/105 passed — zero failures, zero warnings
+  Phase gate posted: [CLAUDE-CODE] Phase G1 complete (868hw8r3f) → OPEN-HUMAN-REVIEW
+Notable fixes:
+  - SchemaResult/DefineSchemaRequest: renamed .schema_json/.schema → .definition (Pydantic v2 shadowing)
+  - auth.py: Settings injected via Depends(get_settings) not direct call — enables test overrides
+  - tools.py: ToolRegistry.call() param renamed name→tool_name to avoid kwarg collision
+  - server.py: lifespan reads app.dependency_overrides to respect test settings (temp DB isolation)
+  - Spec §4 lists 14 tools (4+4+3+3), not 12 as stated in narrative — implemented all 14
+Next: Peter reviews phase gate (868hw8r3f). On approval → G2 (MCP transport: stdio + SSE).
+Evidence: pytest 105 passed. All 5 G1 tasks COMPLETE in ClickUp. SHA 79ac953 on remote.

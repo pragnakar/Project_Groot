@@ -151,16 +151,21 @@
               .replace(/^\s*export\s+default\s+/gm, '')
               .replace(/^\s*export\s+/gm, '');
             try {
-              // Try to find a named Page component, then the exported component, then any component
+              // Destructure all common hooks so LLM-generated code can use them directly
+              const _hooks = ['useState','useEffect','useRef','useCallback','useMemo',
+                              'useContext','useReducer','useLayoutEffect','useId'];
+              const _hookVals = _hooks.map(h => React[h]);
+              const _retExpr = `typeof Page !== 'undefined' ? Page : ${exportedName ? `typeof ${exportedName} !== 'undefined' ? ${exportedName} :` : ''} undefined`;
+
               const code = Babel.transform(jsx, { presets: ['react'] }).code;
-              const tryFn = new Function('React', `"use strict"; ${code}; return typeof Page !== 'undefined' ? Page : ${exportedName ? `typeof ${exportedName} !== 'undefined' ? ${exportedName} :` : ''} undefined;`);
-              let Component = tryFn(React);
+              const tryFn = new Function('React', ..._hooks, `"use strict"; ${code}; return ${_retExpr};`);
+              let Component = tryFn(React, ..._hookVals);
 
               if (!Component) {
                 // Wrap bare JSX as a Page component
                 const wrapped = Babel.transform(`function Page(){return(${jsx.trim()});}`, { presets: ['react'] }).code;
-                const wrapFn = new Function('React', `"use strict"; ${wrapped}; return Page;`);
-                Component = wrapFn(React);
+                const wrapFn = new Function('React', ..._hooks, `"use strict"; ${wrapped}; return Page;`);
+                Component = wrapFn(React, ..._hookVals);
               }
               setState({ status: 'ready', Component });
             } catch (e) {

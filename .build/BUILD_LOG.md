@@ -142,3 +142,24 @@ Notable decisions:
   - G4 (Sage) deferred to Project Sage repo — will integrate via APP_GUIDE contract as an external module
 Next: Project Sage follows APP_MODULE_GUIDE.md contract to integrate as a Groot app module. Groot runtime is complete.
 Evidence: pytest 172 passed. Task 868hw9808 COMPLETE in ClickUp. SHA 22986a5 on main (remote).
+
+---
+
+2026-03-13 | post-G-APP | shell-hotfixes — end-to-end MCP verification
+---
+Context: Groot connected to Claude Desktop via MCP stdio. Live testing revealed three shell rendering issues with LLM-generated JSX.
+Work:
+  Fix 1 (e99d693) — Strip import/export statements before Babel transform.
+    LLM-generated pages include `import React from 'react'` and `export default` which are invalid in the browser eval context. Stripped via regex before transform.
+  Fix 2 (0502fb7) — Resolve export default component name when no Page function exists.
+    LLM names components after the page (e.g. MyTest, Clock) rather than Page. Capture the exported name from `export default function Name` before stripping, fall back to it if Page is not found.
+  Fix 3 (ed91b20) — Inject React hooks as named vars into page eval context.
+    LLM-generated JSX uses destructured hooks (useState, useEffect, etc.) directly. Injected all 9 common hooks as named Function parameters alongside React.
+Result:
+  Full Claude Desktop → MCP stdio → create_page → page server → React shell → browser cycle verified working.
+  Live pages tested: animated clock (useState/useEffect/intervals), kanban board (drag-and-drop), data-viz bar chart (CSS animations).
+  172 tests still passing. No regressions.
+  SHA ed91b20 on main (remote).
+Notable:
+  - All three issues are inherent to LLM code generation style — unlikely to need further fixes for common patterns
+  - Shell now handles: named Page component, export default function AnyName, bare JSX, React.useState style, destructured hook style

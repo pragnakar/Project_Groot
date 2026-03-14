@@ -79,19 +79,29 @@ All tool routes require authentication via `X-Groot-Key` header or `?key=` query
 
 ### Claude Desktop (stdio)
 
-Copy `mcp_config.example.json` into your Claude Desktop MCP config:
+Edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 ```json
 {
   "mcpServers": {
     "groot": {
-      "command": "python",
+      "command": "/opt/anaconda3/bin/python",
       "args": ["-m", "groot", "--mcp-stdio"],
-      "env": { "GROOT_API_KEYS": "groot_sk_dev_key_01" }
+      "cwd": "/path/to/Project_Groot",
+      "env": {
+        "GROOT_DB_PATH": "/path/to/Project_Groot/groot.db",
+        "GROOT_ARTIFACT_DIR": "/path/to/Project_Groot/artifacts"
+      }
     }
   }
 }
 ```
+
+> Use the **absolute path** to your Python executable (`which python`). Claude Desktop launches with a minimal PATH and won't find `python` otherwise.
+
+Restart Claude Desktop. The 🔨 hammer icon confirms Groot tools are available.
+
+**Test it:** ask Claude to `create a Groot page called hello with a live clock`. Then open `http://localhost:8000/#/apps/hello` (requires HTTP server running separately via `python -m groot`).
 
 ### Remote SSE clients
 
@@ -183,6 +193,23 @@ Groot ships with a generalized app module interface. Any developer or AI agent c
 5. Run `python -m groot`
 
 See `docs/APP_MODULE_GUIDE.md` for the full guide, or copy `groot_apps/_example/` as a starting point.
+
+---
+
+## JSX page compatibility
+
+The React shell handles all common LLM-generated JSX patterns automatically:
+
+| Pattern | Handled |
+|---|---|
+| `function Page() { ... }` | Native |
+| `export default function AnyName() { ... }` | Name captured, resolved |
+| Bare JSX expression | Wrapped automatically |
+| `import React from 'react'` | Stripped before transform |
+| Destructured hooks (`useState`, `useEffect`, etc.) | Injected as named vars |
+| `React.useState` style | Works natively |
+
+No special prompt engineering needed — just ask Claude to build a page.
 
 ---
 

@@ -140,7 +140,12 @@
             if (!res.ok) throw Object.assign(new Error(`Page not found: ${name}`), { type: 'not-found' });
             return res.text();
           })
-          .then(jsx => {
+          .then(rawJsx => {
+            // Strip import/export statements — React is globally available in the shell
+            const jsx = rawJsx
+              .replace(/^\s*import\s+.*$/gm, '')
+              .replace(/^\s*export\s+default\s+/gm, '')
+              .replace(/^\s*export\s+/gm, '');
             try {
               // Try to find a named Page component first
               const code = Babel.transform(jsx, { presets: ['react'] }).code;

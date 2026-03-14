@@ -141,15 +141,19 @@
             return res.text();
           })
           .then(rawJsx => {
+            // Capture export default function/const name before stripping
+            const exportMatch = rawJsx.match(/^\s*export\s+default\s+(?:function|const|class)\s+([A-Za-z_$][A-Za-z0-9_$]*)/m);
+            const exportedName = exportMatch ? exportMatch[1] : null;
+
             // Strip import/export statements — React is globally available in the shell
             const jsx = rawJsx
               .replace(/^\s*import\s+.*$/gm, '')
               .replace(/^\s*export\s+default\s+/gm, '')
               .replace(/^\s*export\s+/gm, '');
             try {
-              // Try to find a named Page component first
+              // Try to find a named Page component, then the exported component, then any component
               const code = Babel.transform(jsx, { presets: ['react'] }).code;
-              const tryFn = new Function('React', `"use strict"; ${code}; return typeof Page !== 'undefined' ? Page : undefined;`);
+              const tryFn = new Function('React', `"use strict"; ${code}; return typeof Page !== 'undefined' ? Page : ${exportedName ? `typeof ${exportedName} !== 'undefined' ? ${exportedName} :` : ''} undefined;`);
               let Component = tryFn(React);
 
               if (!Component) {

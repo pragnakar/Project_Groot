@@ -186,3 +186,24 @@ Notable:
   - Error-state apps can be deleted without force=true; only status="loaded" apps require it
 Next: Merge feature/delete-app → main.
 Evidence: pytest 184 passed. SHA fed4ea9 on remote branch feature/delete-app.
+
+---
+
+2026-03-16 | task-868hwpquk | Export App as ZIP — complete
+---
+Context: Delete App merged to main (184 tests). Export App task handed off to Claude Code on branch feature/export-app.
+Work:
+  868hwpquk — GET /api/apps/{name}/export endpoint.
+    groot/app_routes.py: export_app() — builds ZIP in memory via zipfile.ZipFile + io.BytesIO, packages groot_apps/{name}/ (no __pycache__), writes _export_meta.json; ?include_data=true adds _export_pages.json and _export_blobs.json
+    Returns StreamingResponse(application/zip) with Content-Disposition: attachment; filename={name}.zip
+    tests/test_export_app.py: 13 tests — 404, content-type, attachment header, valid ZIP, loader.py present, __init__.py present, __pycache__ excluded, metadata JSON, include_data pages/blobs, roundtrip source match
+Result:
+  Branch: feature/export-app @ SHA 406322a — pushed to remote
+  Full suite: 197/197 passed — zero failures, zero warnings
+  Task 868hwpquk COMPLETE in ClickUp.
+Notable:
+  - Export is unauthenticated (consistent with other GET /api/apps/* endpoints)
+  - Error-state apps with no directory on disk produce a ZIP with only _export_meta.json (no crash)
+  - include_data reads live store state (pages/blobs) at export time — not a snapshot
+Next: Merge feature/export-app → main.
+Evidence: pytest 197 passed. SHA 406322a on remote branch feature/export-app.

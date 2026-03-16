@@ -1,10 +1,14 @@
-"""Groot app discovery routes — GET /api/apps, /api/apps/{name}, /api/apps/{name}/health, DELETE /api/apps/{name}."""
+"""Groot app discovery routes — GET /api/apps, /api/apps/{name}, /api/apps/{name}/health, DELETE /api/apps/{name}, GET /api/apps/{name}/export."""
 
+import io
+import json
 import logging
 import shutil
+import zipfile
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
 
 from groot.auth import AuthContext, verify_api_key
 from groot.models import AppDeleteResult, AppDetail, AppHealth, AppInfo, AppsResponse, CoreInfo, PageMeta, ToolInfo
@@ -194,6 +198,80 @@ def get_app_routes() -> APIRouter:
             blobs_removed=blobs_removed,
             schemas_removed=schemas_removed,
             directory_removed=directory_removed,
+        )
+
+    @router.get("/api/apps/{name}/export")
+    async def export_app(
+        name: str,
+        request: Request,
+        include_data: bool = Query(default=False),
+    ):
+        """Export app module as a downloadable .zip archive.
+
+        Packages groot_apps/{name}/ into a ZIP. With ?include_data=true,
+        also bundles the app's registered pages and blobs as JSON files.
+        """
+        loaded_apps: dict = getattr(request.app.state, "loaded_apps", {})
+        if name not in loaded_apps:
+            raise HTTPException(status_code=404, detail=f"App not found: {name!r}")
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+            # 1. Package the module directory
+            app_dir = _GROOT_APPS_DIR / name
+            if app_dir.exists() and app_dir.is_dir():
+                for file_path in app_dir.rglob("*"):
+                    if file_path.is_file() and "__pycache__" not in file_path.parts:
+                        arcname = Path(name) / file_path.relative_to(app_dir)
+                        zf.write(file_path, arcname)
+            else:
+                logger.warning("Export: app directory not found on disk for %r", name)
+
+            # 2. Write app metadata as JSON
+            entry = loaded_apps[name]
+            meta = {
+                "name": name,
+                "status": entry.get("status"),
+                "meta": entry.get("meta", {}),
+            }
+            zf.writestr(f"{name}/_export_meta.json", json.dumps(meta, indent=2))
+
+            # 3. Optionally bundle pages and blobs
+            if include_data:
+                store = request.app.state.store
+                all_pages = await store.list_pages()
+                app_pages = [p for p in all_pages if p.name.startswith(f"{name}-")]
+                pages_export = []
+                for page_meta in app_pages:
+                    try:
+                        source = await store.get_page_source(page_meta.name)
+                        pages_export.append({"name": page_meta.name, "source": source})
+                    except Exception:
+                        pass
+                if pages_export:
+                    zf.writestr(f"{name}/_export_pages.json", json.dumps(pages_export, indent=2))
+
+                app_blobs = await store.list_blobs(prefix=f"{name}/")
+                blobs_export = []
+                for blob_meta in app_blobs:
+                    try:
+                        blob_data = await store.read_blob(blob_meta.key)
+                        blobs_export.append({
+                            "key": blob_meta.key,
+                            "data": blob_data.data,
+                            "content_type": blob_meta.content_type,
+                        })
+                    except Exception:
+                        pass
+                if blobs_export:
+                    zf.writestr(f"{name}/_export_blobs.json", json.dumps(blobs_export, indent=2))
+
+        buf.seek(0)
+        filename = f"{name}.zip"
+        return StreamingResponse(
+            buf,
+            media_type="application/zip",
+            headers={"Content-Disposition": f"attachment; filename={filename}"},
         )
 
     return router

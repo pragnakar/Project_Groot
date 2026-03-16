@@ -70,6 +70,8 @@ All tool routes require authentication via `X-Groot-Key` header or `?key=` query
 | `/api/system/artifacts` | GET | Yes | Full artifact inventory |
 | `/api/apps` | GET | No | List loaded app modules |
 | `/api/apps/{name}` | GET | No | App detail (tools, pages, status) |
+| `/api/apps/{name}/health` | GET | No | App health check |
+| `/api/apps/{name}` | DELETE | Yes | Unregister app, remove pages/tools; `?purge_data=true` deletes blobs+schemas; `?force=true` required for loaded apps + removes directory |
 | `/mcp/sse` | GET | `?key=` | MCP SSE transport |
 | `/mcp/messages` | POST | — | MCP SSE message relay |
 
@@ -178,6 +180,7 @@ tests/
 | G2 | MCP transport: stdio + SSE | **Complete** | 125 total |
 | G3 | Page server + React shell + built-in pages | **Complete** | 160 total |
 | G-APP | Generalized app module interface + example scaffold + docs | **Complete** | — |
+| Delete App | `DELETE /api/apps/{name}` with purge_data + force flags | **Complete** | 184 total |
 | ~~G4~~ | ~~Sage app module~~ | **Deferred** | — |
 
 > **G4 note:** Sage is a domain-specific optimization engine with its own lifecycle. It was deferred to [Project Sage](https://github.com/pragnakar/Project_Sage) and will integrate with Groot as an external app module via the `register()` protocol. This keeps Groot clean, forkable, and domain-agnostic.

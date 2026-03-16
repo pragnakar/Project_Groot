@@ -163,3 +163,26 @@ Result:
 Notable:
   - All three issues are inherent to LLM code generation style — unlikely to need further fixes for common patterns
   - Shell now handles: named Page component, export default function AnyName, bare JSX, React.useState style, destructured hook style
+
+---
+
+2026-03-13 | task-868hwpqxk | DELETE /api/apps/{name} — complete
+---
+Context: Groot runtime complete (172 tests). Delete App task staged in ClickUp and handed off to Claude Code on branch feature/delete-app.
+Work:
+  868hwpqxk — Authenticated DELETE /api/apps/{name} with purge_data and force flags.
+    groot/tools.py: ToolRegistry.unregister_namespace(namespace) -> int
+    groot/artifact_store.py: delete_schema(name) -> bool implemented
+    groot/models.py: AppDeleteResult(name, tools_removed, pages_removed, blobs_removed, schemas_removed, directory_removed)
+    groot/app_routes.py: DELETE /api/apps/{name} — 404 if unknown, 409 if loaded without force=true, unregisters tools, deletes pages, purges blobs/schemas on purge_data=true, removes directory on force=true
+    tests/test_delete_app.py: 12 tests — auth guard, 404, 409 protection, error-state delete, force delete, page/tool removal, purge_data blobs, purge_data schemas
+Result:
+  Branch: feature/delete-app @ SHA fed4ea9 — pushed to remote
+  Full suite: 184/184 passed — zero failures, zero warnings
+  Task 868hwpqxk COMPLETE in ClickUp.
+Notable:
+  - force=true tests patch shutil.rmtree to prevent deletion of real groot_apps/_example/ during test runs
+  - delete_schema was absent from ArtifactStore — added to support purge_data=true schema cleanup
+  - Error-state apps can be deleted without force=true; only status="loaded" apps require it
+Next: Merge feature/delete-app → main.
+Evidence: pytest 184 passed. SHA fed4ea9 on remote branch feature/delete-app.

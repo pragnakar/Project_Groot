@@ -225,3 +225,48 @@ Notable:
   - Happy path tests mock importlib.import_module — extracted code in tmp_path is not on sys.path, so real import would fail in tests; extraction itself tested separately
   - Path traversal check covers both absolute paths and .. components
   - Hot-load uses importlib.reload() if module already in sys.modules (re-import scenario)
+
+---
+
+2026-03-16 | v0.3.0 | Dashboard UI overhaul (Claude AI review round 1 + round 2) — complete
+---
+Context: v0.2.0 shipped Delete/Export/Import App. Two rounds of Claude AI review produced a prioritized recommendation list; all items implemented and merged to main.
+
+Work — Round 1 (groot-ui-recommendations.md):
+  groot/builtin_pages.py (_DASHBOARD_JSX):
+    - Replaced native <select> Actions with custom Dropdown component (stable ref, defined before Page())
+    - API key validation: debounced fetch to /api/system/state, color dot indicator (green/red/gray)
+    - Import ZIP: spinner state, success/error toast via showToast(), inline importMsg banner
+    - Search/filter input on Registered Pages (debounced, filters name + description)
+    - System/example page badges (groot- prefix = system tag, _ prefix = example tag)
+    - Delete action hidden for system pages
+    - Description truncation (overflow ellipsis + title tooltip, italic placeholder for missing)
+    - Quick Links section removed entirely
+    CSS: @keyframes spin for Import ZIP spinner
+  groot/builtin_pages.py (_ARTIFACTS_JSX):
+    - Pages tab added as first tab (was missing entirely)
+    - Initial fetch extended to Promise.all([/api/system/artifacts, /api/pages])
+
+Work — Round 2 (Claude AI review feedback):
+  groot/builtin_pages.py:
+    - fmtUptime(s): converts raw uptime_seconds to "Xm Ys" / "Xh Ym" human-readable format
+    - openSource(name): fetches JSX source, renders in-app modal with <pre> viewer (both dashboard + artifact browser) — replaces window.open new-tab
+    - showToast() added to doDelete + doDeletePage success and error paths
+    - Stats grid cards clickable: Pages/Blobs/Schemas/Artifacts navigate to /#/artifacts?tab=<tab>
+    - navArtifacts(tab) helper sets window.location.hash
+    - Artifact Browser: compact/table view toggle for pages tab
+    - Artifact Browser: reads initial tab from window.location.hash on mount (?tab=X)
+  groot-shell/index.html:
+    - parseRoute(): handles /artifacts?tab=X (startsWith check)
+    - Nav: "API Docs" (/docs) and "Health" (/health) links added right-aligned via .nav-right CSS class
+  groot/app_routes.py + groot/__init__.py + groot/__main__.py + groot/server.py + pyproject.toml:
+    - Version bumped 0.2.0 → 0.3.0 across all files
+
+Result:
+  Branch: main @ SHA 0fdc443 (UI), bumped to 0.3.0
+  Full suite: 211/211 passed — zero failures, zero warnings
+Notable:
+  - Dropdown component defined outside Page() function — stable React reference, no remount on render
+  - sessionStorage persists API key across page refreshes
+  - Source modal closes on click-outside (e.target === e.currentTarget check)
+  - Tab deep-link: /#/artifacts?tab=blobs navigates directly to blobs tab on artifact browser mount

@@ -184,7 +184,8 @@ tests/
 | G-APP | Generalized app module interface + example scaffold + docs | **Complete** | — |
 | Delete App | `DELETE /api/apps/{name}` with purge_data + force flags | **Complete** | 184 total |
 | Export App | `GET /api/apps/{name}/export` — ZIP download with optional data bundle | **Complete** | 197 total |
-| Import App | `POST /api/apps/import` — ZIP upload, validate, extract, hot-load | **Complete** | 198 total |
+| Import App | `POST /api/apps/import` — ZIP upload, validate, extract, hot-load | **Complete** | 211 total |
+| Dashboard v0.3.0 | Full UI overhaul — custom dropdowns, API key validation, search, toasts, source viewer modal, compact view, nav links, clickable stats, uptime format | **Complete** | 211 total |
 | ~~G4~~ | ~~Sage app module~~ | **Deferred** | — |
 
 > **G4 note:** Sage is a domain-specific optimization engine with its own lifecycle. It was deferred to [Project Sage](https://github.com/pragnakar/Project_Sage) and will integrate with Groot as an external app module via the `register()` protocol. This keeps Groot clean, forkable, and domain-agnostic.

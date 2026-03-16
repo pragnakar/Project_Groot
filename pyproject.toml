@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "groot-runtime"
-version = "0.2.0"
+version = "0.3.0"
 description = "Domain-agnostic LLM runtime environment"
 requires-python = ">=3.11"
 dependencies = [

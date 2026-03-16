@@ -45,7 +45,7 @@ def test_list_apps_no_apps(client):
     assert "core" in body
     assert body["apps"] == []
     assert body["core"]["tools_count"] == 14
-    assert body["core"]["version"] == "0.2.0"
+    assert body["core"]["version"] == "0.3.0"
 
 
 def test_list_apps_core_page_count(client):

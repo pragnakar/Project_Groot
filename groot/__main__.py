@@ -91,7 +91,7 @@ def main():
         from groot.config import get_settings
         settings = get_settings()
         port = args.port if args.port is not None else settings.GROOT_PORT
-        print(f"\n  Groot Runtime v0.2.0")
+        print(f"\n  Groot Runtime v0.3.0")
         print(f"  API Key : {api_key}")
         print(f"  Dashboard: http://{settings.GROOT_HOST if settings.GROOT_HOST != '0.0.0.0' else 'localhost'}:{port}/\n")
         uvicorn.run(

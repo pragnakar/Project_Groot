@@ -208,14 +208,14 @@ function Page() {
       </div>
 
       <div style={s.card}>
-        <div style={s.h2}>Registered Pages</div>
+        <div style={s.h2}>Registered Apps</div>
         {pages.length === 0
-          ? <div style={{color:'#8b949e', fontSize:'.9rem'}}>No pages registered yet.</div>
+          ? <div style={{color:'#8b949e', fontSize:'.9rem'}}>No apps registered yet.</div>
           : pages.map(p => (
-              <div key={p.name} style={{...s.row, gap:'.75rem'}}>
-                <select style={s.select} defaultValue="" onChange={e => {
+              <div key={p.name} style={{...s.row, gap:'.75rem', flexWrap:'wrap', alignItems:'flex-start', paddingTop:'.5rem', paddingBottom:'.5rem'}}>
+                <select style={{...s.select, flexShrink:0}} defaultValue="" onChange={e => {
                   const v = e.target.value; e.target.value = '';
-                  if (v === 'open')   window.location.hash = '/apps/' + p.name;
+                  if (v === 'open')        window.location.hash = '/apps/' + p.name;
                   else if (v === 'source') window.open('/api/pages/' + p.name + '/source', '_blank');
                   else if (v === 'delete') setConfirmDeletePage(p.name);
                 }}>
@@ -224,9 +224,11 @@ function Page() {
                   <option value="source">View Source</option>
                   <option value="delete">Delete…</option>
                 </select>
-                <a href={'#/apps/' + p.name} style={{...s.link, flex:1, minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>{p.name}</a>
-                <span style={{color:'#8b949e', fontSize:'.75rem', flexShrink:0}}>{p.description || ''}</span>
-                {pageDeleteStatus[p.name] && <span style={{color:'#8b949e', fontSize:'.75rem', flexShrink:0}}>{pageDeleteStatus[p.name]}</span>}
+                <div style={{flex:1, minWidth:0}}>
+                  <a href={'#/apps/' + p.name} style={{...s.link, wordBreak:'break-all'}}>{p.name}</a>
+                  {p.description ? <div style={{color:'#8b949e', fontSize:'.75rem', marginTop:'.15rem', wordBreak:'break-word'}}>{p.description}</div> : null}
+                  {pageDeleteStatus[p.name] && <div style={{color:'#8b949e', fontSize:'.75rem', marginTop:'.15rem'}}>{pageDeleteStatus[p.name]}</div>}
+                </div>
               </div>
             ))
         }

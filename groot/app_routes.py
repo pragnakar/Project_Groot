@@ -1,10 +1,15 @@
-"""Groot app discovery routes — GET /api/apps, /api/apps/{name}, /api/apps/{name}/health."""
+"""Groot app discovery routes — GET /api/apps, /api/apps/{name}, /api/apps/{name}/health, DELETE /api/apps/{name}."""
 
 import logging
+import shutil
+from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
-from groot.models import AppDetail, AppHealth, AppInfo, AppsResponse, CoreInfo, PageMeta, ToolInfo
+from groot.auth import AuthContext, verify_api_key
+from groot.models import AppDeleteResult, AppDetail, AppHealth, AppInfo, AppsResponse, CoreInfo, PageMeta, ToolInfo
+
+_GROOT_APPS_DIR = Path(__file__).parent.parent / "groot_apps"
 
 logger = logging.getLogger(__name__)
 
@@ -110,5 +115,85 @@ def get_app_routes() -> APIRouter:
         except Exception as e:
             logger.warning("health_check() for app %r raised: %s", name, e)
             return AppHealth(name=name, status="error", checks={"exception": str(e)})
+
+    @router.delete("/api/apps/{name}", response_model=AppDeleteResult)
+    async def delete_app(
+        name: str,
+        request: Request,
+        purge_data: bool = Query(default=False),
+        force: bool = Query(default=False),
+        auth: AuthContext = Depends(verify_api_key),
+    ):
+        """Unregister an app module and remove its pages. Requires auth.
+
+        - purge_data=true: also delete blobs and schemas prefixed with the app name
+        - force=true: required to delete a currently-loaded (running) app and remove its directory
+        """
+        loaded_apps: dict = getattr(request.app.state, "loaded_apps", {})
+        if name not in loaded_apps:
+            raise HTTPException(status_code=404, detail=f"App not found: {name!r}")
+
+        entry = loaded_apps[name]
+        status = entry.get("status", "error")
+
+        # Protection: loaded apps require force=true
+        if status == "loaded" and not force:
+            raise HTTPException(
+                status_code=409,
+                detail=f"App {name!r} is currently loaded. Use ?force=true to delete it.",
+            )
+
+        registry = request.app.state.registry
+        store = request.app.state.store
+
+        # 1. Unregister tools
+        tools_removed = registry.unregister_namespace(name)
+
+        # 2. Remove app pages (pages prefixed with "{name}-")
+        all_pages = await store.list_pages()
+        app_pages = [p.name for p in all_pages if p.name.startswith(f"{name}-")]
+        for page_name in app_pages:
+            await store.delete_page(page_name)
+
+        # 3. Purge blobs and schemas if requested
+        blobs_removed = 0
+        schemas_removed = 0
+        if purge_data:
+            app_blobs = await store.list_blobs(prefix=f"{name}/")
+            for blob in app_blobs:
+                await store.delete_blob(blob.key)
+                blobs_removed += 1
+
+            all_schemas = await store.list_schemas()
+            for schema in all_schemas:
+                if schema.name.startswith(f"{name}/") or schema.name.startswith(f"{name}-"):
+                    # ArtifactStore has no delete_schema — skip silently if absent
+                    if hasattr(store, "delete_schema"):
+                        await store.delete_schema(schema.name)
+                        schemas_removed += 1
+
+        # 4. Remove from loaded_apps registry
+        del loaded_apps[name]
+
+        # 5. Remove app directory from groot_apps/ (only with force)
+        directory_removed = False
+        if force:
+            app_dir = _GROOT_APPS_DIR / name
+            if app_dir.exists() and app_dir.is_dir():
+                shutil.rmtree(app_dir)
+                directory_removed = True
+                logger.info("Removed app directory: %s", app_dir)
+
+        logger.info("Deleted app %r: tools=%d pages=%d blobs=%d schemas=%d dir=%s",
+                    name, tools_removed, len(app_pages), blobs_removed, schemas_removed, directory_removed)
+
+        return AppDeleteResult(
+            name=name,
+            tools_removed=tools_removed,
+            pages_removed=len(app_pages),
+            blobs_removed=blobs_removed,
+            schemas_removed=schemas_removed,
+            directory_removed=directory_removed,
+        )
 
     return router

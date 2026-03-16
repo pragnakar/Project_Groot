@@ -209,3 +209,13 @@ class AppsResponse(BaseModel):
     """Response for GET /api/apps."""
     apps: list[AppInfo] = Field(default_factory=list)
     core: CoreInfo
+
+
+class AppDeleteResult(BaseModel):
+    """Response for DELETE /api/apps/{name}."""
+    name: str
+    tools_removed: int
+    pages_removed: int
+    blobs_removed: int
+    schemas_removed: int
+    directory_removed: bool

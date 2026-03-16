@@ -99,6 +99,13 @@ class ToolRegistry:
             tools = [t for t in tools if t.namespace == namespace]
         return tools
 
+    def unregister_namespace(self, namespace: str) -> int:
+        """Remove all tools belonging to a namespace. Returns count removed."""
+        to_remove = [name for name, t in self._tools.items() if t.namespace == namespace]
+        for name in to_remove:
+            del self._tools[name]
+        return len(to_remove)
+
     async def call(self, tool_name: str, store: ArtifactStore, **kwargs) -> BaseModel:
         """
         Call a tool by name with kwargs. Injects store as first arg.

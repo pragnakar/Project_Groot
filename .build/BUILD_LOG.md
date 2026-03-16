@@ -198,12 +198,30 @@ Work:
     Returns StreamingResponse(application/zip) with Content-Disposition: attachment; filename={name}.zip
     tests/test_export_app.py: 13 tests — 404, content-type, attachment header, valid ZIP, loader.py present, __init__.py present, __pycache__ excluded, metadata JSON, include_data pages/blobs, roundtrip source match
 Result:
-  Branch: feature/export-app @ SHA 406322a — pushed to remote
+  Branch: feature/export-app @ SHA 406322a — merged to main via PR #1
   Full suite: 197/197 passed — zero failures, zero warnings
   Task 868hwpquk COMPLETE in ClickUp.
 Notable:
   - Export is unauthenticated (consistent with other GET /api/apps/* endpoints)
   - Error-state apps with no directory on disk produce a ZIP with only _export_meta.json (no crash)
   - include_data reads live store state (pages/blobs) at export time — not a snapshot
-Next: Merge feature/export-app → main.
-Evidence: pytest 197 passed. SHA 406322a on remote branch feature/export-app.
+
+---
+
+2026-03-16 | task-868hwpqf3 | Import App from ZIP — complete
+---
+Context: Export App merged to main (197 tests). Import App task at HAND OFF TO CLAUDE CODE. Branch feature/import-app off main.
+Work:
+  868hwpqf3 — POST /api/apps/import: multipart ZIP upload, validate, extract, hot-load.
+    groot/models.py: AppImportResult(name, status, tools_registered, pages_registered, message)
+    groot/app_routes.py: import_app() — 10 MB limit, ZIP validation, single top-level dir detection, Python identifier check, path traversal rejection, __init__.py required, extract to groot_apps/{name}/, importlib hot-load (reload if re-importing), returns AppImportResult
+    groot/server.py: added /api/apps/import to _dynamic_paths for idempotent lifespan mounting
+    tests/test_import_app.py: 14 tests — auth, 7 validation cases (non-zip, missing init, bare files, multiple dirs, invalid name, path traversal, oversized), happy path (mocked loader), disk extraction, 422 loader missing
+Result:
+  Branch: feature/import-app — merged to main via PR #2
+  Full suite: 211/211 passed — zero failures, zero warnings
+  Task 868hwpqf3 COMPLETE in ClickUp.
+Notable:
+  - Happy path tests mock importlib.import_module — extracted code in tmp_path is not on sys.path, so real import would fail in tests; extraction itself tested separately
+  - Path traversal check covers both absolute paths and .. components
+  - Hot-load uses importlib.reload() if module already in sys.modules (re-import scenario)

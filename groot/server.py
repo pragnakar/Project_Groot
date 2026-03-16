@@ -116,6 +116,7 @@ async def lifespan(app: FastAPI):
     _dynamic_paths = {
         "/api/pages", "/api/pages/{name}/source", "/api/pages/{name}/meta",
         "/api/apps", "/api/apps/{name}", "/api/apps/{name}/health",
+        "/api/apps/import",
     }
     app.router.routes[:] = [r for r in app.router.routes if getattr(r, "path", None) not in _dynamic_paths]
     app.include_router(page_server.get_routes())

@@ -1,17 +1,20 @@
-"""Groot app discovery routes — GET /api/apps, /api/apps/{name}, /api/apps/{name}/health, DELETE /api/apps/{name}, GET /api/apps/{name}/export."""
+"""Groot app discovery routes — GET /api/apps, /api/apps/{name}, /api/apps/{name}/health, DELETE /api/apps/{name}, GET /api/apps/{name}/export, POST /api/apps/import."""
 
+import importlib
 import io
 import json
 import logging
+import re
 import shutil
+import sys
 import zipfile
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
 
 from groot.auth import AuthContext, verify_api_key
-from groot.models import AppDeleteResult, AppDetail, AppHealth, AppInfo, AppsResponse, CoreInfo, PageMeta, ToolInfo
+from groot.models import AppDeleteResult, AppDetail, AppHealth, AppInfo, AppImportResult, AppsResponse, CoreInfo, PageMeta, ToolInfo
 
 _GROOT_APPS_DIR = Path(__file__).parent.parent / "groot_apps"
 
@@ -199,6 +202,136 @@ def get_app_routes() -> APIRouter:
             schemas_removed=schemas_removed,
             directory_removed=directory_removed,
         )
+
+    @router.post("/api/apps/import", response_model=AppImportResult)
+    async def import_app(
+        request: Request,
+        file: UploadFile = File(...),
+        auth: AuthContext = Depends(verify_api_key),
+    ):
+        """Import an app module from a .zip archive and hot-load it into the runtime.
+
+        The ZIP must contain a single top-level directory (the app name) with a
+        valid Python package (__init__.py required). All paths must be within that
+        directory — path traversal is rejected. Max upload size: 10 MB.
+        """
+        _MAX_BYTES = 10 * 1024 * 1024  # 10 MB
+
+        # 1. Read and enforce size limit
+        raw = await file.read(_MAX_BYTES + 1)
+        if len(raw) > _MAX_BYTES:
+            raise HTTPException(status_code=413, detail="ZIP file exceeds 10 MB limit.")
+
+        # 2. Validate it's a ZIP
+        if not zipfile.is_zipfile(io.BytesIO(raw)):
+            raise HTTPException(status_code=400, detail="Uploaded file is not a valid ZIP archive.")
+
+        with zipfile.ZipFile(io.BytesIO(raw)) as zf:
+            names = zf.namelist()
+
+            # 3. Detect app name from top-level directory
+            top_dirs = {n.split("/")[0] for n in names if "/" in n}
+            bare_files = [n for n in names if "/" not in n]
+            if bare_files:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"ZIP must have a single top-level directory. Found bare files: {bare_files[:3]}",
+                )
+            if len(top_dirs) != 1:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"ZIP must have exactly one top-level directory, found: {sorted(top_dirs)}",
+                )
+            app_name = top_dirs.pop()
+
+            # 4. Validate app name (safe identifier, no path traversal)
+            if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", app_name):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"App name {app_name!r} is not a valid Python identifier.",
+                )
+
+            # 5. Validate no path traversal in any ZIP entry
+            for entry in names:
+                resolved = Path(entry)
+                if resolved.is_absolute() or ".." in resolved.parts:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Path traversal detected in ZIP entry: {entry!r}",
+                    )
+                if not entry.startswith(f"{app_name}/"):
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"ZIP entry {entry!r} is outside the app directory.",
+                    )
+
+            # 6. Validate Python package: __init__.py required
+            init_path = f"{app_name}/__init__.py"
+            if init_path not in names:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"ZIP must contain {init_path!r} to be a valid Python package.",
+                )
+
+            # 7. Extract to groot_apps/
+            dest_dir = _GROOT_APPS_DIR / app_name
+            if dest_dir.exists():
+                shutil.rmtree(dest_dir)
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            zf.extractall(_GROOT_APPS_DIR)
+            logger.info("Extracted app %r to %s", app_name, dest_dir)
+
+        # 8. Hot-load: import (or reload) the loader module and register
+        loaded_apps: dict = getattr(request.app.state, "loaded_apps", {})
+        registry = request.app.state.registry
+        page_server = request.app.state.page_server
+        store = request.app.state.store
+
+        module_path = f"groot_apps.{app_name}.loader"
+        try:
+            if module_path in sys.modules:
+                module = importlib.reload(sys.modules[module_path])
+            else:
+                module = importlib.import_module(module_path)
+
+            # Count tools/pages before registration to calculate delta
+            tools_before = len(registry.list_tools(namespace=app_name))
+            pages_before = len([p for p in await store.list_pages() if p.name.startswith(f"{app_name}-")])
+
+            await module.register(registry, page_server, store)
+
+            tools_after = len(registry.list_tools(namespace=app_name))
+            pages_after = len([p for p in await store.list_pages() if p.name.startswith(f"{app_name}-")])
+
+            loaded_apps[app_name] = {
+                "module": module,
+                "meta": getattr(module, "APP_META", {}),
+                "status": "loaded",
+            }
+            logger.info("Hot-loaded app %r: tools=%d pages=%d", app_name,
+                        tools_after - tools_before, pages_after - pages_before)
+
+            return AppImportResult(
+                name=app_name,
+                status="loaded",
+                tools_registered=tools_after - tools_before,
+                pages_registered=pages_after - pages_before,
+                message=f"App {app_name!r} imported and loaded successfully.",
+            )
+
+        except ModuleNotFoundError as e:
+            loaded_apps[app_name] = {"status": "error", "error": str(e)}
+            raise HTTPException(
+                status_code=422,
+                detail=f"App extracted but loader not found: {e}. Ensure loader.py exists in the ZIP.",
+            )
+        except Exception as e:
+            loaded_apps[app_name] = {"status": "error", "error": str(e)}
+            logger.warning("Failed to hot-load imported app %r: %s", app_name, e)
+            raise HTTPException(
+                status_code=422,
+                detail=f"App extracted but failed to load: {e}",
+            )
 
     @router.get("/api/apps/{name}/export")
     async def export_app(

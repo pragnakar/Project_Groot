@@ -219,3 +219,12 @@ class AppDeleteResult(BaseModel):
     blobs_removed: int
     schemas_removed: int
     directory_removed: bool
+
+
+class AppImportResult(BaseModel):
+    """Response for POST /api/apps/import."""
+    name: str
+    status: str  # "loaded" | "error"
+    tools_registered: int
+    pages_registered: int
+    message: str = ""

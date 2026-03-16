@@ -11,6 +11,14 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _DASHBOARD_JSX = """\
+function fmtUptime(s) {
+  if (!s && s !== 0) return '--';
+  s = Math.floor(s);
+  if (s < 60)   return s + 's';
+  if (s < 3600) return Math.floor(s / 60) + 'm ' + (s % 60) + 's';
+  return Math.floor(s / 3600) + 'h ' + Math.floor((s % 3600) / 60) + 'm';
+}
+
 function Dropdown({ items }) {
   const [open, setOpen] = React.useState(false);
   const [hovered, setHovered] = React.useState(null);
@@ -31,7 +39,7 @@ function Dropdown({ items }) {
         onClick={() => setOpen(o => !o)}
         style={{padding:'.25rem .65rem', fontSize:'.78rem', borderRadius:4, border:'1px solid #30363d', cursor:'pointer', background:'#21262d', color:'#8b949e'}}
       >
-        Actions ▾
+        Actions \u25be
       </button>
       {open && (
         <div style={{position:'absolute', top:'100%', left:0, zIndex:200, background:'#161b22', border:'1px solid #30363d', borderRadius:6, minWidth:160, marginTop:2, boxShadow:'0 4px 12px rgba(0,0,0,.5)'}}>
@@ -70,6 +78,7 @@ function Page() {
   const [confirmDeletePage, setConfirmDeletePage] = React.useState(null);
   const [pageSearch, setPageSearch] = React.useState('');
   const [toast, setToast] = React.useState(null);
+  const [sourceModal, setSourceModal] = React.useState(null);
 
   const showToast = (msg, ok) => {
     setToast({ msg, ok });
@@ -113,6 +122,14 @@ function Page() {
 
   React.useEffect(() => { reload(); }, []);
 
+  const openSource = name => {
+    setSourceModal({ name, src: null, loading: true });
+    fetch('/api/pages/' + encodeURIComponent(name) + '/source')
+      .then(r => r.text())
+      .then(src => setSourceModal({ name, src, loading: false }))
+      .catch(() => setSourceModal({ name, src: '(failed to load source)', loading: false }));
+  };
+
   const doDelete = (name, force) => {
     setDeleteStatus(s => ({...s, [name]: 'deleting\u2026'}));
     fetch('/api/apps/' + name + '?force=' + force, {
@@ -121,10 +138,19 @@ function Page() {
     })
       .then(r => r.json())
       .then(d => {
-        if (d.detail) setDeleteStatus(s => ({...s, [name]: '\u2717 ' + d.detail}));
-        else { setDeleteStatus(s => ({...s, [name]: '\u2713 deleted'})); reload(); }
+        if (d.detail) {
+          setDeleteStatus(s => ({...s, [name]: '\u2717 ' + d.detail}));
+          showToast('Delete failed: ' + (typeof d.detail === 'string' ? d.detail : JSON.stringify(d.detail)), false);
+        } else {
+          setDeleteStatus(s => ({...s, [name]: '\u2713 deleted'}));
+          showToast('App "' + name + '" deleted', true);
+          reload();
+        }
       })
-      .catch(e => setDeleteStatus(s => ({...s, [name]: '\u2717 ' + e.message})));
+      .catch(e => {
+        setDeleteStatus(s => ({...s, [name]: '\u2717 ' + e.message}));
+        showToast('Delete failed: ' + e.message, false);
+      });
     setConfirmDelete(null);
   };
 
@@ -137,10 +163,20 @@ function Page() {
     })
       .then(r => r.json())
       .then(d => {
-        if (d.error || d.detail) setPageDeleteStatus(s => ({...s, [name]: '\u2717 ' + (d.detail || d.error)}));
-        else { setPageDeleteStatus(s => ({...s, [name]: '\u2713 deleted'})); reload(); }
+        if (d.error || d.detail) {
+          const msg = d.detail || d.error;
+          setPageDeleteStatus(s => ({...s, [name]: '\u2717 ' + msg}));
+          showToast('Delete failed: ' + (typeof msg === 'string' ? msg : JSON.stringify(msg)), false);
+        } else {
+          setPageDeleteStatus(s => ({...s, [name]: '\u2713 deleted'}));
+          showToast('Page "' + name + '" deleted', true);
+          reload();
+        }
       })
-      .catch(e => setPageDeleteStatus(s => ({...s, [name]: '\u2717 ' + e.message})));
+      .catch(e => {
+        setPageDeleteStatus(s => ({...s, [name]: '\u2717 ' + e.message}));
+        showToast('Delete failed: ' + e.message, false);
+      });
     setConfirmDeletePage(null);
   };
 
@@ -156,7 +192,7 @@ function Page() {
         setImporting(false);
         if (d.detail) {
           setImportMsg({ ok: false, text: d.detail });
-          showToast(d.detail, false);
+          showToast(typeof d.detail === 'string' ? d.detail : JSON.stringify(d.detail), false);
         } else {
           const msg = '\u2713 ' + d.name + ' loaded \u2014 tools:' + d.tools_registered + ' pages:' + d.pages_registered;
           setImportMsg({ ok: true, text: msg });
@@ -202,6 +238,8 @@ function Page() {
     tagSystem:  { display:'inline-block', padding:'.05rem .35rem', borderRadius:3, fontSize:'.65rem', fontWeight:600, background:'#21262d', color:'#6e7681', marginLeft:'.4rem', verticalAlign:'middle' },
     tagExample: { display:'inline-block', padding:'.05rem .35rem', borderRadius:3, fontSize:'.65rem', fontWeight:600, background:'#2d2208', color:'#d29922', marginLeft:'.4rem', verticalAlign:'middle' },
     spinner:  { display:'inline-block', width:12, height:12, border:'2px solid #4ade8040', borderTopColor:'#4ade80', borderRadius:'50%', animation:'spin 0.7s linear infinite', marginRight:6 },
+    srcModal: { background:'#161b22', border:'1px solid #30363d', borderRadius:8, padding:'1.5rem', width:'min(90vw, 780px)', maxHeight:'80vh', display:'flex', flexDirection:'column', gap:'1rem' },
+    srcPre:   { background:'#0d1117', border:'1px solid #30363d', borderRadius:6, padding:'1rem', fontSize:'.78rem', color:'#4ade80', whiteSpace:'pre-wrap', wordBreak:'break-all', overflow:'auto', flex:1 },
   };
 
   const isSystemPage  = name => name.startsWith('groot-');
@@ -212,6 +250,8 @@ function Page() {
     const q = pageSearch.toLowerCase();
     return p.name.toLowerCase().includes(q) || (p.description || '').toLowerCase().includes(q);
   });
+
+  const navArtifacts = tab => { window.location.hash = '#/artifacts?tab=' + tab; };
 
   if (loading) return <div style={{color:'#8b949e', padding:'3rem 0', textAlign:'center'}}>Loading dashboard\u2026</div>;
   if (error)   return <div style={{color:'#ff6b6b', padding:'1rem'}}>Error: {error}</div>;
@@ -225,6 +265,21 @@ function Page() {
       {toast && (
         <div style={{position:'fixed', bottom:24, right:24, zIndex:300, background:'#161b22', border:'1px solid ' + (toast.ok ? '#4ade80' : '#ff6b6b'), borderRadius:8, padding:'.75rem 1rem', color: toast.ok ? '#4ade80' : '#ff6b6b', fontSize:'.85rem', maxWidth:360, boxShadow:'0 4px 16px rgba(0,0,0,.5)'}}>
           {toast.msg}
+        </div>
+      )}
+
+      {sourceModal && (
+        <div style={s.overlay} onClick={e => { if (e.target === e.currentTarget) setSourceModal(null); }}>
+          <div style={s.srcModal}>
+            <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', flexShrink:0}}>
+              <span style={{color:'#e2e8f0', fontWeight:600, fontSize:'.9rem'}}>{sourceModal.name}</span>
+              <button style={{...s.btn, marginLeft:0}} onClick={() => setSourceModal(null)}>Close</button>
+            </div>
+            {sourceModal.loading
+              ? <div style={{color:'#8b949e', padding:'2rem 0', textAlign:'center'}}>Loading source\u2026</div>
+              : <pre style={s.srcPre}>{sourceModal.src}</pre>
+            }
+          </div>
         </div>
       )}
 
@@ -263,12 +318,25 @@ function Page() {
 
       {state && (
         <div style={s.grid}>
-          <div style={s.statCard}><div style={s.bigNum}>{state.artifact_count}</div><div style={s.bigLabel}>Artifacts</div></div>
-          <div style={s.statCard}><div style={s.bigNum}>{state.page_count}</div><div style={s.bigLabel}>Pages</div></div>
-          <div style={s.statCard}><div style={s.bigNum}>{state.blob_count}</div><div style={s.bigLabel}>Blobs</div></div>
-          <div style={s.statCard}><div style={s.bigNum}>{state.schema_count}</div><div style={s.bigLabel}>Schemas</div></div>
-          <div style={s.statCard}><div style={{...s.bigNum, fontSize:'1.3rem'}}>{Math.floor(state.uptime_seconds)}s</div><div style={s.bigLabel}>Uptime</div></div>
-          <div style={s.statCard}><div style={s.bigNum}>{apps.length}</div><div style={s.bigLabel}>Apps</div></div>
+          <div style={{...s.statCard, cursor:'pointer'}} onClick={() => navArtifacts('pages')} title="View pages">
+            <div style={s.bigNum}>{state.page_count}</div><div style={s.bigLabel}>Pages</div>
+          </div>
+          <div style={{...s.statCard, cursor:'pointer'}} onClick={() => navArtifacts('blobs')} title="View blobs">
+            <div style={s.bigNum}>{state.blob_count}</div><div style={s.bigLabel}>Blobs</div>
+          </div>
+          <div style={{...s.statCard, cursor:'pointer'}} onClick={() => navArtifacts('schemas')} title="View schemas">
+            <div style={s.bigNum}>{state.schema_count}</div><div style={s.bigLabel}>Schemas</div>
+          </div>
+          <div style={{...s.statCard, cursor:'pointer'}} onClick={() => navArtifacts('events')} title="View events">
+            <div style={s.bigNum}>{state.artifact_count}</div><div style={s.bigLabel}>Artifacts</div>
+          </div>
+          <div style={s.statCard}>
+            <div style={{...s.bigNum, fontSize:'1.3rem'}}>{fmtUptime(state.uptime_seconds)}</div>
+            <div style={s.bigLabel}>Uptime</div>
+          </div>
+          <div style={s.statCard}>
+            <div style={s.bigNum}>{apps.length}</div><div style={s.bigLabel}>Apps</div>
+          </div>
         </div>
       )}
 
@@ -332,8 +400,8 @@ function Page() {
               const isSys = isSystemPage(p.name);
               const isEx  = isExamplePage(p.name);
               const dropItems = [
-                { label: 'Open',        onClick: () => { window.location.hash = '/apps/' + p.name; } },
-                { label: 'View Source', onClick: () => window.open('/api/pages/' + p.name + '/source', '_blank') },
+                { label: 'Open',        onClick: () => { window.location.hash = '#/apps/' + p.name; } },
+                { label: 'View Source', onClick: () => openSource(p.name) },
               ];
               if (!isSys) dropItems.push({ label: 'Delete\u2026', onClick: () => setConfirmDeletePage(p.name), danger: true });
               return (
@@ -387,8 +455,12 @@ function Page() {
   const [pages, setPages] = React.useState([]);
   const [selected, setSelected] = React.useState(null);
   const [loading, setLoading] = React.useState(true);
+  const [compact, setCompact] = React.useState(false);
+  const [sourceModal, setSourceModal] = React.useState(null);
 
   React.useEffect(() => {
+    const m = window.location.hash.match(/[?&]tab=(\\w+)/);
+    if (m) setTab(m[1]);
     Promise.all([
       fetch('/api/system/artifacts').then(r => r.ok ? r.json() : null),
       fetch('/api/pages').then(r => r.ok ? r.json() : []),
@@ -400,6 +472,14 @@ function Page() {
       })
       .catch(() => setLoading(false));
   }, []);
+
+  const openSource = name => {
+    setSourceModal({ name, src: null, loading: true });
+    fetch('/api/pages/' + encodeURIComponent(name) + '/source')
+      .then(r => r.text())
+      .then(src => setSourceModal({ name, src, loading: false }))
+      .catch(() => setSourceModal({ name, src: '(failed to load source)', loading: false }));
+  };
 
   const s = {
     tabs:     { display:'flex', gap:'.25rem', marginBottom:'1rem', borderBottom:'1px solid #30363d', paddingBottom:'.5rem' },
@@ -414,7 +494,10 @@ function Page() {
     h1:       { fontSize:'1.5rem', fontWeight:600, color:'#e2e8f0', marginBottom:'1rem' },
     empty:    { color:'#8b949e', fontSize:'.9rem', padding:'1rem 0' },
     link:     { color:'#6366f1', textDecoration:'none', fontSize:'.9rem' },
-    btn:      { marginTop:'.5rem', padding:'.25rem .6rem', fontSize:'.8rem', cursor:'pointer', background:'#21262d', border:'1px solid #30363d', borderRadius:4 },
+    btn:      { padding:'.25rem .6rem', fontSize:'.8rem', cursor:'pointer', background:'#21262d', border:'1px solid #30363d', borderRadius:4, color:'#8b949e' },
+    overlay:  { position:'fixed', inset:0, background:'rgba(0,0,0,.6)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:100 },
+    srcModal: { background:'#161b22', border:'1px solid #30363d', borderRadius:8, padding:'1.5rem', width:'min(90vw, 780px)', maxHeight:'80vh', display:'flex', flexDirection:'column', gap:'1rem' },
+    srcPre:   { background:'#0d1117', border:'1px solid #30363d', borderRadius:6, padding:'1rem', fontSize:'.78rem', color:'#4ade80', whiteSpace:'pre-wrap', wordBreak:'break-all', overflow:'auto', flex:1 },
   };
 
   const blobs   = data.blobs || [];
@@ -427,6 +510,21 @@ function Page() {
     <div>
       <h1 style={s.h1}>Artifact Browser</h1>
 
+      {sourceModal && (
+        <div style={s.overlay} onClick={e => { if (e.target === e.currentTarget) setSourceModal(null); }}>
+          <div style={s.srcModal}>
+            <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', flexShrink:0}}>
+              <span style={{color:'#e2e8f0', fontWeight:600, fontSize:'.9rem'}}>{sourceModal.name}</span>
+              <button style={s.btn} onClick={() => setSourceModal(null)}>Close</button>
+            </div>
+            {sourceModal.loading
+              ? <div style={{color:'#8b949e', padding:'2rem 0', textAlign:'center'}}>Loading source\u2026</div>
+              : <pre style={s.srcPre}>{sourceModal.src}</pre>
+            }
+          </div>
+        </div>
+      )}
+
       <div style={s.tabs}>
         <button style={tab === 'pages'   ? s.tabA : s.tab} onClick={() => { setTab('pages');   setSelected(null); }}>Pages ({pages.length})</button>
         <button style={tab === 'blobs'   ? s.tabA : s.tab} onClick={() => { setTab('blobs');   setSelected(null); }}>Blobs ({blobs.length})</button>
@@ -436,28 +534,46 @@ function Page() {
 
       {tab === 'pages' && (
         <div>
+          <div style={{display:'flex', justifyContent:'flex-end', marginBottom:'.5rem'}}>
+            <button style={{...s.btn, fontSize:'.75rem', padding:'.2rem .55rem'}} onClick={() => setCompact(c => !c)}>
+              {compact ? 'Card view' : 'Compact view'}
+            </button>
+          </div>
           {pages.length === 0
             ? <div style={s.empty}>No pages registered.</div>
-            : pages.map(p => (
-                <div key={p.name} style={s.card}>
-                  <div style={s.row}>
-                    <div style={{display:'flex', flexDirection:'column', gap:'.2rem', flex:1, minWidth:0}}>
+            : compact
+              ? (
+                <div style={{background:'#161b22', border:'1px solid #30363d', borderRadius:8, overflow:'hidden'}}>
+                  {pages.map((p, i) => (
+                    <div key={p.name} style={{display:'flex', alignItems:'center', gap:'.75rem', padding:'.5rem 1rem', borderBottom: i < pages.length - 1 ? '1px solid #21262d' : 'none', fontSize:'.85rem'}}>
                       <a href={'#/apps/' + p.name} style={s.link}>{p.name}</a>
-                      <span
-                        title={p.description || ''}
-                        style={{color: p.description ? '#8b949e' : '#4a5568', fontStyle: p.description ? 'normal' : 'italic', fontSize:'.78rem', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}
-                      >
-                        {p.description || 'No description'}
-                      </span>
+                      <span style={{color:'#8b949e', flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', fontSize:'.78rem'}} title={p.description || ''}>{p.description || <em style={{color:'#4a5568'}}>No description</em>}</span>
+                      <span style={{color:'#4a5568', fontSize:'.75rem', whiteSpace:'nowrap'}}>{p.created_at || ''}</span>
+                      <button style={{...s.btn, padding:'.15rem .5rem', fontSize:'.75rem', color:'#8b949e'}} onClick={() => openSource(p.name)}>Source</button>
                     </div>
-                    <span style={{color:'#8b949e', fontSize:'.75rem', whiteSpace:'nowrap', marginLeft:'1rem'}}>{p.created_at || ''}</span>
-                  </div>
-                  <div style={{display:'flex', gap:'.5rem', marginTop:'.5rem'}}>
-                    <button style={{...s.btn, color:'#6366f1', borderColor:'#6366f1'}} onClick={() => { window.location.hash = '/apps/' + p.name; }}>Open</button>
-                    <button style={{...s.btn, color:'#8b949e'}} onClick={() => window.open('/api/pages/' + p.name + '/source', '_blank')}>Source</button>
-                  </div>
+                  ))}
                 </div>
-              ))
+              )
+              : pages.map(p => (
+                  <div key={p.name} style={s.card}>
+                    <div style={s.row}>
+                      <div style={{display:'flex', flexDirection:'column', gap:'.2rem', flex:1, minWidth:0}}>
+                        <a href={'#/apps/' + p.name} style={s.link}>{p.name}</a>
+                        <span
+                          title={p.description || ''}
+                          style={{color: p.description ? '#8b949e' : '#4a5568', fontStyle: p.description ? 'normal' : 'italic', fontSize:'.78rem', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}
+                        >
+                          {p.description || 'No description'}
+                        </span>
+                      </div>
+                      <span style={{color:'#8b949e', fontSize:'.75rem', whiteSpace:'nowrap', marginLeft:'1rem'}}>{p.created_at || ''}</span>
+                    </div>
+                    <div style={{display:'flex', gap:'.5rem', marginTop:'.5rem'}}>
+                      <button style={{...s.btn, color:'#6366f1', borderColor:'#6366f1'}} onClick={() => { window.location.hash = '#/apps/' + p.name; }}>Open</button>
+                      <button style={s.btn} onClick={() => openSource(p.name)}>Source</button>
+                    </div>
+                  </div>
+                ))
           }
         </div>
       )}
@@ -474,9 +590,9 @@ function Page() {
                   </div>
                   {selected === b.key
                     ? <div><pre style={s.pre}>{b.data || '(content not loaded \u2014 use /api/tools/read_blob)'}</pre>
-                        <button onClick={() => setSelected(null)} style={{...s.btn, color:'#e2e8f0'}}>Close</button>
+                        <button onClick={() => setSelected(null)} style={{...s.btn, color:'#e2e8f0', marginTop:'.5rem'}}>Close</button>
                       </div>
-                    : <button onClick={() => setSelected(b.key)} style={{...s.btn, color:'#8b949e'}}>Inspect</button>
+                    : <button onClick={() => setSelected(b.key)} style={{...s.btn, marginTop:'.5rem'}}>Inspect</button>
                   }
                 </div>
               ))
@@ -496,9 +612,9 @@ function Page() {
                   </div>
                   {selected === sc.name
                     ? <div><pre style={s.pre}>{JSON.stringify(sc.definition || {}, null, 2)}</pre>
-                        <button onClick={() => setSelected(null)} style={{...s.btn, color:'#e2e8f0'}}>Close</button>
+                        <button onClick={() => setSelected(null)} style={{...s.btn, color:'#e2e8f0', marginTop:'.5rem'}}>Close</button>
                       </div>
-                    : <button onClick={() => setSelected(sc.name)} style={{...s.btn, color:'#8b949e'}}>View Schema</button>
+                    : <button onClick={() => setSelected(sc.name)} style={{...s.btn, marginTop:'.5rem'}}>View Schema</button>
                   }
                 </div>
               ))

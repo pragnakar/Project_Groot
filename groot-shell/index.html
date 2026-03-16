@@ -42,10 +42,12 @@
     nav a:hover { color: var(--text); }
     nav a.active { color: var(--accent); }
     nav .page-chip {
-      margin-left: auto; padding: .2rem .7rem;
+      padding: .2rem .7rem;
       background: var(--border); border-radius: 999px;
       font-size: .8rem; color: var(--muted);
     }
+    nav .nav-right { margin-left: auto; display: flex; align-items: center; gap: 1rem; }
+    nav .nav-right a { font-size: .8rem; color: var(--muted); }
 
     /* Main */
     main { flex: 1; padding: 2rem 2.5rem; max-width: 1100px; width: 100%; margin: 0 auto; }
@@ -99,7 +101,7 @@
     function parseRoute(hash) {
       const path = hash.replace(/^#/, '') || '/';
       if (path === '/' || path === '') return { route: 'dashboard' };
-      if (path === '/artifacts')       return { route: 'artifacts' };
+      if (path === '/artifacts' || path.startsWith('/artifacts?')) return { route: 'artifacts' };
       const m = path.match(/^\/apps\/([^/?#]+)/);
       if (m) return { route: 'page', name: m[1] };
       return { route: 'not-found' };
@@ -218,7 +220,11 @@
           <a className="logo" href="#/">Groot</a>
           <a href="#/"         className={current.route === 'dashboard' ? 'active' : ''}>Dashboard</a>
           <a href="#/artifacts" className={current.route === 'artifacts' ? 'active' : ''}>Artifacts</a>
-          {current.route === 'page' && <span className="page-chip">{current.name}</span>}
+          <div className="nav-right">
+            {current.route === 'page' && <span className="page-chip">{current.name}</span>}
+            <a href="/docs" target="_blank" rel="noopener">API Docs</a>
+            <a href="/health" target="_blank" rel="noopener">Health</a>
+          </div>
         </nav>
       );
     }

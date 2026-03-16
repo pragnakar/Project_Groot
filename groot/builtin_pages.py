@@ -92,7 +92,8 @@ function Page() {
     btnGreen: { padding:'.25rem .65rem', fontSize:'.78rem', borderRadius:4, border:'1px solid #4ade80', cursor:'pointer', background:'#21262d', color:'#4ade80', marginLeft:'.35rem' },
     badge:    ok => ({ display:'inline-block', padding:'.1rem .45rem', borderRadius:4, fontSize:'.7rem', fontWeight:600,
                        background: ok ? '#0d2318' : '#2d1515', color: ok ? '#4ade80' : '#ff6b6b', marginRight:'.5rem' }),
-    input:    { background:'#0d1117', border:'1px solid #30363d', borderRadius:4, padding:'.3rem .6rem', color:'#e2e8f0', fontSize:'.85rem', width:'100%', boxSizing:'border-box' },
+    input:    { background:'#0d1117', border:'1px solid #30363d', borderRadius:4, padding:'.3rem .6rem', color:'#e2e8f0', fontSize:'.85rem', boxSizing:'border-box' },
+    select:   { background:'#0d1117', border:'1px solid #30363d', borderRadius:4, padding:'.25rem .5rem', color:'#e2e8f0', fontSize:'.8rem', cursor:'pointer', flexShrink:0 },
     overlay:  { position:'fixed', inset:0, background:'rgba(0,0,0,.6)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:100 },
     modal:    { background:'#161b22', border:'1px solid #30363d', borderRadius:8, padding:'1.5rem', minWidth:320, maxWidth:420 },
   };
@@ -134,44 +135,43 @@ function Page() {
       )}
 
       <div style={s.card}>
-        <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'.75rem'}}>
-          <div style={s.h2} >App Manager</div>
-          <div style={{display:'flex', gap:'.5rem', alignItems:'center'}}>
-            <input style={{...s.input, width:220}} type="password" placeholder="API key (for delete / import)"
-              value={apiKey} onChange={e => saveKey(e.target.value)} />
-          </div>
+        <div style={s.h2}>App Manager</div>
+
+        <div style={{display:'flex', gap:'.5rem', alignItems:'center', flexWrap:'wrap', marginBottom:'1rem', paddingBottom:'1rem', borderBottom:'1px solid #21262d'}}>
+          <input type="file" accept=".zip" onChange={e => setImportFile(e.target.files[0])}
+            style={{color:'#8b949e', fontSize:'.85rem', flex:1, minWidth:180}} />
+          <input style={{...s.input, width:200}} type="password" placeholder="API key"
+            value={apiKey} onChange={e => saveKey(e.target.value)} />
+          <button style={s.btnGreen} onClick={doImport} disabled={!importFile}>Import ZIP</button>
+          {importStatus && <span style={{fontSize:'.82rem', color: importStatus.startsWith('✓') ? '#4ade80' : '#ff6b6b'}}>{importStatus}</span>}
         </div>
 
         {apps.length === 0
-          ? <div style={{color:'#8b949e', fontSize:'.9rem', marginBottom:'1rem'}}>No apps loaded.</div>
+          ? <div style={{color:'#8b949e', fontSize:'.9rem'}}>No apps loaded.</div>
           : apps.map(a => (
-              <div key={a.name} style={{...s.row, flexWrap:'wrap', gap:'.25rem'}}>
-                <div style={{display:'flex', alignItems:'center', flex:1, minWidth:160}}>
+              <div key={a.name} style={{...s.row, gap:'.75rem'}}>
+                <select style={s.select} defaultValue="" onChange={e => {
+                  const v = e.target.value; e.target.value = '';
+                  if (v === 'export')      window.location.href = '/api/apps/' + a.name + '/export';
+                  else if (v === 'exportd') window.location.href = '/api/apps/' + a.name + '/export?include_data=true';
+                  else if (v === 'delete') setConfirmDelete(a.name);
+                }}>
+                  <option value="" disabled>Actions</option>
+                  <option value="export">Export ZIP</option>
+                  <option value="exportd">Export + Data</option>
+                  <option value="delete">Delete…</option>
+                </select>
+                <div style={{display:'flex', alignItems:'center', flex:1, minWidth:0}}>
                   <span style={s.badge(a.status === 'loaded')}>{a.status}</span>
                   <span style={{color:'#e2e8f0', fontWeight:600, fontSize:'.9rem'}}>{a.name}</span>
-                  <span style={{color:'#8b949e', fontSize:'.78rem', marginLeft:'.5rem'}}>
+                  <span style={{color:'#8b949e', fontSize:'.78rem', marginLeft:'.5rem', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>
                     {a.tools_count}t · {a.pages_count}p{a.description ? ' · ' + a.description : ''}
                   </span>
                 </div>
-                <div style={{display:'flex', alignItems:'center', flexShrink:0}}>
-                  <a href={'/api/apps/' + a.name + '/export'} style={s.btn} download>Export</a>
-                  <a href={'/api/apps/' + a.name + '/export?include_data=true'} style={s.btn} download>Export+Data</a>
-                  <button style={s.btnRed} onClick={() => setConfirmDelete(a.name)}>Delete</button>
-                  {deleteStatus[a.name] && <span style={{color:'#8b949e', fontSize:'.75rem', marginLeft:'.5rem'}}>{deleteStatus[a.name]}</span>}
-                </div>
+                {deleteStatus[a.name] && <span style={{color:'#8b949e', fontSize:'.75rem', flexShrink:0}}>{deleteStatus[a.name]}</span>}
               </div>
             ))
         }
-
-        <div style={{marginTop:'1rem', paddingTop:'1rem', borderTop:'1px solid #21262d'}}>
-          <div style={{...s.h2, marginBottom:'.5rem'}}>Import App from ZIP</div>
-          <div style={{display:'flex', gap:'.5rem', alignItems:'center', flexWrap:'wrap'}}>
-            <input type="file" accept=".zip" onChange={e => setImportFile(e.target.files[0])}
-              style={{color:'#8b949e', fontSize:'.85rem', flex:1, minWidth:200}} />
-            <button style={s.btnGreen} onClick={doImport} disabled={!importFile}>Upload &amp; Install</button>
-          </div>
-          {importStatus && <div style={{marginTop:'.5rem', fontSize:'.82rem', color: importStatus.startsWith('✓') ? '#4ade80' : '#ff6b6b'}}>{importStatus}</div>}
-        </div>
       </div>
 
       <div style={s.two}>

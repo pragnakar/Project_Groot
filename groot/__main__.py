@@ -11,8 +11,17 @@ import argparse
 import asyncio
 import importlib
 import logging
+import os
+import secrets
 
 logger = logging.getLogger(__name__)
+
+
+def _generate_api_key() -> str:
+    """Generate a fresh session API key, inject it into the environment, and return it."""
+    key = "groot_sk_" + secrets.token_hex(16)
+    os.environ["GROOT_API_KEYS"] = key
+    return key
 
 
 async def _build_runtime():
@@ -55,6 +64,8 @@ def main():
     parser.add_argument("--port", type=int, default=None, help="HTTP server port (overrides settings)")
     args = parser.parse_args()
 
+    api_key = _generate_api_key()
+
     if args.mcp_stdio:
         if args.http:
             import threading
@@ -80,11 +91,14 @@ def main():
         from groot.config import get_settings
         settings = get_settings()
         port = args.port if args.port is not None else settings.GROOT_PORT
+        print(f"\n  Groot Runtime v0.2.0")
+        print(f"  API Key : {api_key}")
+        print(f"  Dashboard: http://{settings.GROOT_HOST if settings.GROOT_HOST != '0.0.0.0' else 'localhost'}:{port}/\n")
         uvicorn.run(
             "groot.server:app",
             host=settings.GROOT_HOST,
             port=port,
-            reload=True,
+            reload=False,
         )
 
 

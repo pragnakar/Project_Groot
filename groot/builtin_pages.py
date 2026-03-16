@@ -12,41 +12,89 @@ logger = logging.getLogger(__name__)
 
 _DASHBOARD_JSX = """\
 function Page() {
-  const [state, setState] = React.useState(null);
-  const [pages, setPages] = React.useState([]);
-  const [events, setEvents] = React.useState([]);
+  const [state, setState]     = React.useState(null);
+  const [pages, setPages]     = React.useState([]);
+  const [events, setEvents]   = React.useState([]);
+  const [apps, setApps]       = React.useState([]);
   const [loading, setLoading] = React.useState(true);
-  const [error, setError] = React.useState(null);
+  const [error, setError]     = React.useState(null);
+  const [apiKey, setApiKey]   = React.useState(() => sessionStorage.getItem('groot_key') || '');
+  const [importFile, setImportFile]     = React.useState(null);
+  const [importStatus, setImportStatus] = React.useState(null);
+  const [deleteStatus, setDeleteStatus] = React.useState({});
+  const [confirmDelete, setConfirmDelete] = React.useState(null);
 
-  React.useEffect(() => {
+  const saveKey = k => { setApiKey(k); sessionStorage.setItem('groot_key', k); };
+
+  const reload = () => {
+    setLoading(true);
     Promise.all([
-      fetch('/api/system/state').then(r => r.ok ? r.json() : null),
+      fetch('/api/system/state', {headers: apiKey ? {'X-Groot-Key': apiKey} : {}}).then(r => r.ok ? r.json() : null),
       fetch('/api/pages').then(r => r.ok ? r.json() : []),
-      fetch('/api/system/artifacts').then(r => r.ok ? r.json() : null),
+      fetch('/api/system/artifacts', {headers: apiKey ? {'X-Groot-Key': apiKey} : {}}).then(r => r.ok ? r.json() : null),
+      fetch('/api/apps').then(r => r.ok ? r.json() : {apps:[]}),
     ])
-      .then(([sysState, pageList, artifacts]) => {
+      .then(([sysState, pageList, artifacts, appsData]) => {
         setState(sysState);
         setPages(pageList || []);
         setEvents(artifacts ? (artifacts.recent_events || []).slice(0, 10) : []);
+        setApps((appsData && appsData.apps) || []);
         setLoading(false);
       })
       .catch(e => { setError(e.message); setLoading(false); });
-  }, []);
+  };
+
+  React.useEffect(() => { reload(); }, []);
+
+  const doDelete = (name, force) => {
+    setDeleteStatus(s => ({...s, [name]: 'deleting…'}));
+    fetch('/api/apps/' + name + '?force=' + force, {
+      method: 'DELETE',
+      headers: {'X-Groot-Key': apiKey},
+    })
+      .then(r => r.json())
+      .then(d => {
+        if (d.detail) setDeleteStatus(s => ({...s, [name]: '✗ ' + d.detail}));
+        else { setDeleteStatus(s => ({...s, [name]: '✓ deleted'})); reload(); }
+      })
+      .catch(e => setDeleteStatus(s => ({...s, [name]: '✗ ' + e.message})));
+    setConfirmDelete(null);
+  };
+
+  const doImport = () => {
+    if (!importFile) return;
+    setImportStatus('uploading…');
+    const fd = new FormData();
+    fd.append('file', importFile);
+    fetch('/api/apps/import', { method:'POST', headers:{'X-Groot-Key': apiKey}, body: fd })
+      .then(r => r.json())
+      .then(d => {
+        if (d.detail) setImportStatus('✗ ' + d.detail);
+        else { setImportStatus('✓ ' + d.name + ' loaded — tools:' + d.tools_registered + ' pages:' + d.pages_registered); reload(); }
+      })
+      .catch(e => setImportStatus('✗ ' + e.message));
+  };
 
   const s = {
-    card:      { background:'#161b22', border:'1px solid #30363d', borderRadius:8, padding:'1.25rem', marginBottom:'1rem' },
-    h1:        { fontSize:'1.5rem', fontWeight:600, color:'#e2e8f0', marginBottom:'1rem' },
-    h2:        { fontSize:'.8rem', fontWeight:600, color:'#8b949e', marginBottom:'.75rem', textTransform:'uppercase', letterSpacing:'.08em' },
-    row:       { display:'flex', justifyContent:'space-between', alignItems:'center', padding:'.4rem 0', borderBottom:'1px solid #21262d' },
-    label:     { color:'#8b949e', fontSize:'.9rem' },
-    val:       { color:'#4ade80', fontWeight:600 },
-    link:      { color:'#6366f1', textDecoration:'none', fontSize:'.9rem' },
-    grid:      { display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(140px, 1fr))', gap:'1rem', marginBottom:'1rem' },
-    statCard:  { background:'#161b22', border:'1px solid #30363d', borderRadius:8, padding:'1rem', textAlign:'center' },
-    bigNum:    { fontSize:'1.8rem', fontWeight:700, color:'#4ade80' },
-    bigLabel:  { color:'#8b949e', fontSize:'.8rem', marginTop:'.2rem' },
-    two:       { display:'grid', gridTemplateColumns:'1fr 1fr', gap:'1rem' },
-    eventRow:  { padding:'.35rem 0', borderBottom:'1px solid #21262d', fontSize:'.85rem' },
+    card:     { background:'#161b22', border:'1px solid #30363d', borderRadius:8, padding:'1.25rem', marginBottom:'1rem' },
+    h1:       { fontSize:'1.5rem', fontWeight:600, color:'#e2e8f0', marginBottom:'1rem' },
+    h2:       { fontSize:'.8rem', fontWeight:600, color:'#8b949e', marginBottom:'.75rem', textTransform:'uppercase', letterSpacing:'.08em' },
+    row:      { display:'flex', justifyContent:'space-between', alignItems:'center', padding:'.4rem 0', borderBottom:'1px solid #21262d' },
+    link:     { color:'#6366f1', textDecoration:'none', fontSize:'.9rem' },
+    grid:     { display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(140px, 1fr))', gap:'1rem', marginBottom:'1rem' },
+    statCard: { background:'#161b22', border:'1px solid #30363d', borderRadius:8, padding:'1rem', textAlign:'center' },
+    bigNum:   { fontSize:'1.8rem', fontWeight:700, color:'#4ade80' },
+    bigLabel: { color:'#8b949e', fontSize:'.8rem', marginTop:'.2rem' },
+    two:      { display:'grid', gridTemplateColumns:'1fr 1fr', gap:'1rem' },
+    eventRow: { padding:'.35rem 0', borderBottom:'1px solid #21262d', fontSize:'.85rem' },
+    btn:      { padding:'.25rem .65rem', fontSize:'.78rem', borderRadius:4, border:'1px solid #30363d', cursor:'pointer', background:'#21262d', color:'#8b949e', marginLeft:'.35rem' },
+    btnRed:   { padding:'.25rem .65rem', fontSize:'.78rem', borderRadius:4, border:'1px solid #ff6b6b', cursor:'pointer', background:'#21262d', color:'#ff6b6b', marginLeft:'.35rem' },
+    btnGreen: { padding:'.25rem .65rem', fontSize:'.78rem', borderRadius:4, border:'1px solid #4ade80', cursor:'pointer', background:'#21262d', color:'#4ade80', marginLeft:'.35rem' },
+    badge:    ok => ({ display:'inline-block', padding:'.1rem .45rem', borderRadius:4, fontSize:'.7rem', fontWeight:600,
+                       background: ok ? '#0d2318' : '#2d1515', color: ok ? '#4ade80' : '#ff6b6b', marginRight:'.5rem' }),
+    input:    { background:'#0d1117', border:'1px solid #30363d', borderRadius:4, padding:'.3rem .6rem', color:'#e2e8f0', fontSize:'.85rem', width:'100%', boxSizing:'border-box' },
+    overlay:  { position:'fixed', inset:0, background:'rgba(0,0,0,.6)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:100 },
+    modal:    { background:'#161b22', border:'1px solid #30363d', borderRadius:8, padding:'1.5rem', minWidth:320, maxWidth:420 },
   };
 
   if (loading) return <div style={{color:'#8b949e', padding:'3rem 0', textAlign:'center'}}>Loading dashboard…</div>;
@@ -56,6 +104,22 @@ function Page() {
 
   return (
     <div>
+      {confirmDelete && (
+        <div style={s.overlay}>
+          <div style={s.modal}>
+            <div style={{color:'#e2e8f0', marginBottom:'1rem', fontWeight:600}}>Delete app "{confirmDelete}"?</div>
+            <div style={{color:'#8b949e', fontSize:'.85rem', marginBottom:'1.25rem'}}>
+              This removes all tools and pages. Use Force to also delete the directory.
+            </div>
+            <div style={{display:'flex', gap:'.5rem', justifyContent:'flex-end'}}>
+              <button style={s.btn} onClick={() => setConfirmDelete(null)}>Cancel</button>
+              <button style={s.btn} onClick={() => doDelete(confirmDelete, false)}>Delete</button>
+              <button style={s.btnRed} onClick={() => doDelete(confirmDelete, true)}>Force Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <h1 style={s.h1}><span style={{color:'#4ade80'}}>Groot</span> Dashboard <span style={{fontSize:'0.75rem', color:'#8b949e', fontWeight:'normal', marginLeft:'0.5rem'}}>v0.2.0</span></h1>
 
       {state && (
@@ -65,8 +129,50 @@ function Page() {
           <div style={s.statCard}><div style={s.bigNum}>{state.blob_count}</div><div style={s.bigLabel}>Blobs</div></div>
           <div style={s.statCard}><div style={s.bigNum}>{state.schema_count}</div><div style={s.bigLabel}>Schemas</div></div>
           <div style={s.statCard}><div style={{...s.bigNum, fontSize:'1.3rem'}}>{Math.floor(state.uptime_seconds)}s</div><div style={s.bigLabel}>Uptime</div></div>
+          <div style={s.statCard}><div style={s.bigNum}>{apps.length}</div><div style={s.bigLabel}>Apps</div></div>
         </div>
       )}
+
+      <div style={s.card}>
+        <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'.75rem'}}>
+          <div style={s.h2} >App Manager</div>
+          <div style={{display:'flex', gap:'.5rem', alignItems:'center'}}>
+            <input style={{...s.input, width:220}} type="password" placeholder="API key (for delete / import)"
+              value={apiKey} onChange={e => saveKey(e.target.value)} />
+          </div>
+        </div>
+
+        {apps.length === 0
+          ? <div style={{color:'#8b949e', fontSize:'.9rem', marginBottom:'1rem'}}>No apps loaded.</div>
+          : apps.map(a => (
+              <div key={a.name} style={{...s.row, flexWrap:'wrap', gap:'.25rem'}}>
+                <div style={{display:'flex', alignItems:'center', flex:1, minWidth:160}}>
+                  <span style={s.badge(a.status === 'loaded')}>{a.status}</span>
+                  <span style={{color:'#e2e8f0', fontWeight:600, fontSize:'.9rem'}}>{a.name}</span>
+                  <span style={{color:'#8b949e', fontSize:'.78rem', marginLeft:'.5rem'}}>
+                    {a.tools_count}t · {a.pages_count}p{a.description ? ' · ' + a.description : ''}
+                  </span>
+                </div>
+                <div style={{display:'flex', alignItems:'center', flexShrink:0}}>
+                  <a href={'/api/apps/' + a.name + '/export'} style={s.btn} download>Export</a>
+                  <a href={'/api/apps/' + a.name + '/export?include_data=true'} style={s.btn} download>Export+Data</a>
+                  <button style={s.btnRed} onClick={() => setConfirmDelete(a.name)}>Delete</button>
+                  {deleteStatus[a.name] && <span style={{color:'#8b949e', fontSize:'.75rem', marginLeft:'.5rem'}}>{deleteStatus[a.name]}</span>}
+                </div>
+              </div>
+            ))
+        }
+
+        <div style={{marginTop:'1rem', paddingTop:'1rem', borderTop:'1px solid #21262d'}}>
+          <div style={{...s.h2, marginBottom:'.5rem'}}>Import App from ZIP</div>
+          <div style={{display:'flex', gap:'.5rem', alignItems:'center', flexWrap:'wrap'}}>
+            <input type="file" accept=".zip" onChange={e => setImportFile(e.target.files[0])}
+              style={{color:'#8b949e', fontSize:'.85rem', flex:1, minWidth:200}} />
+            <button style={s.btnGreen} onClick={doImport} disabled={!importFile}>Upload &amp; Install</button>
+          </div>
+          {importStatus && <div style={{marginTop:'.5rem', fontSize:'.82rem', color: importStatus.startsWith('✓') ? '#4ade80' : '#ff6b6b'}}>{importStatus}</div>}
+        </div>
+      </div>
 
       <div style={s.two}>
         <div style={s.card}>

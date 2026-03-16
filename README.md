@@ -73,6 +73,7 @@ All tool routes require authentication via `X-Groot-Key` header or `?key=` query
 | `/api/apps/{name}/health` | GET | No | App health check |
 | `/api/apps/{name}` | DELETE | Yes | Unregister app, remove pages/tools; `?purge_data=true` deletes blobs+schemas; `?force=true` required for loaded apps + removes directory |
 | `/api/apps/import` | POST | Yes | Upload `.zip` to install + hot-load an app module |
+| `/api/apps/{name}/export` | GET | No | Download app as `.zip`; `?include_data=true` bundles pages + blobs |
 | `/mcp/sse` | GET | `?key=` | MCP SSE transport |
 | `/mcp/messages` | POST | — | MCP SSE message relay |
 
@@ -182,6 +183,7 @@ tests/
 | G3 | Page server + React shell + built-in pages | **Complete** | 160 total |
 | G-APP | Generalized app module interface + example scaffold + docs | **Complete** | — |
 | Delete App | `DELETE /api/apps/{name}` with purge_data + force flags | **Complete** | 184 total |
+| Export App | `GET /api/apps/{name}/export` — ZIP download with optional data bundle | **Complete** | 197 total |
 | Import App | `POST /api/apps/import` — ZIP upload, validate, extract, hot-load | **Complete** | 198 total |
 | ~~G4~~ | ~~Sage app module~~ | **Deferred** | — |
 

@@ -143,7 +143,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Groot Runtime",
-    version="0.1.0",
+    version="0.2.0",
     lifespan=lifespan,
 )
 
@@ -190,7 +190,7 @@ def get_uptime(request: Request) -> float:
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "version": "0.1.0"}
+    return {"status": "ok", "version": "0.2.0"}
 
 
 # ---------------------------------------------------------------------------

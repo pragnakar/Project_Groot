@@ -20,7 +20,7 @@ _GROOT_APPS_DIR = Path(__file__).parent.parent / "groot_apps"
 
 logger = logging.getLogger(__name__)
 
-_CORE_VERSION = "0.1.0"
+_CORE_VERSION = "0.2.0"
 _BUILTIN_PAGES = {"groot-dashboard", "groot-artifacts"}
 
 

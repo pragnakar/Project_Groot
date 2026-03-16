@@ -56,7 +56,7 @@ function Page() {
 
   return (
     <div>
-      <h1 style={s.h1}><span style={{color:'#4ade80'}}>Groot</span> Dashboard</h1>
+      <h1 style={s.h1}><span style={{color:'#4ade80'}}>Groot</span> Dashboard <span style={{fontSize:'0.75rem', color:'#8b949e', fontWeight:'normal', marginLeft:'0.5rem'}}>v0.2.0</span></h1>
 
       {state && (
         <div style={s.grid}>

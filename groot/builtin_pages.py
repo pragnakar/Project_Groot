@@ -21,8 +21,10 @@ function Page() {
   const [apiKey, setApiKey]   = React.useState(() => sessionStorage.getItem('groot_key') || '');
   const [importFile, setImportFile]     = React.useState(null);
   const [importStatus, setImportStatus] = React.useState(null);
-  const [deleteStatus, setDeleteStatus] = React.useState({});
-  const [confirmDelete, setConfirmDelete] = React.useState(null);
+  const [deleteStatus, setDeleteStatus]         = React.useState({});
+  const [confirmDelete, setConfirmDelete]       = React.useState(null);
+  const [pageDeleteStatus, setPageDeleteStatus] = React.useState({});
+  const [confirmDeletePage, setConfirmDeletePage] = React.useState(null);
 
   const saveKey = k => { setApiKey(k); sessionStorage.setItem('groot_key', k); };
 
@@ -59,6 +61,22 @@ function Page() {
       })
       .catch(e => setDeleteStatus(s => ({...s, [name]: '✗ ' + e.message})));
     setConfirmDelete(null);
+  };
+
+  const doDeletePage = name => {
+    setPageDeleteStatus(s => ({...s, [name]: 'deleting…'}));
+    fetch('/api/tools/delete_page', {
+      method: 'POST',
+      headers: {'X-Groot-Key': apiKey, 'Content-Type': 'application/json'},
+      body: JSON.stringify({name}),
+    })
+      .then(r => r.json())
+      .then(d => {
+        if (d.error || d.detail) setPageDeleteStatus(s => ({...s, [name]: '✗ ' + (d.detail || d.error)}));
+        else { setPageDeleteStatus(s => ({...s, [name]: '✓ deleted'})); reload(); }
+      })
+      .catch(e => setPageDeleteStatus(s => ({...s, [name]: '✗ ' + e.message})));
+    setConfirmDeletePage(null);
   };
 
   const doImport = () => {
@@ -110,12 +128,27 @@ function Page() {
           <div style={s.modal}>
             <div style={{color:'#e2e8f0', marginBottom:'1rem', fontWeight:600}}>Delete app "{confirmDelete}"?</div>
             <div style={{color:'#8b949e', fontSize:'.85rem', marginBottom:'1.25rem'}}>
-              This removes all tools and pages. Use Force to also delete the directory.
+              Removes all tools and pages. Force also deletes the directory on disk.
             </div>
             <div style={{display:'flex', gap:'.5rem', justifyContent:'flex-end'}}>
               <button style={s.btn} onClick={() => setConfirmDelete(null)}>Cancel</button>
               <button style={s.btn} onClick={() => doDelete(confirmDelete, false)}>Delete</button>
               <button style={s.btnRed} onClick={() => doDelete(confirmDelete, true)}>Force Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmDeletePage && (
+        <div style={s.overlay}>
+          <div style={s.modal}>
+            <div style={{color:'#e2e8f0', marginBottom:'1rem', fontWeight:600}}>Delete page "{confirmDeletePage}"?</div>
+            <div style={{color:'#8b949e', fontSize:'.85rem', marginBottom:'1.25rem'}}>
+              This removes the page and its JSX from the store. The route will stop working immediately.
+            </div>
+            <div style={{display:'flex', gap:'.5rem', justifyContent:'flex-end'}}>
+              <button style={s.btn} onClick={() => setConfirmDeletePage(null)}>Cancel</button>
+              <button style={s.btnRed} onClick={() => doDeletePage(confirmDeletePage)}>Delete</button>
             </div>
           </div>
         </div>
@@ -174,31 +207,41 @@ function Page() {
         }
       </div>
 
-      <div style={s.two}>
-        <div style={s.card}>
-          <div style={s.h2}>Registered Pages</div>
-          {pages.length === 0
-            ? <div style={{color:'#8b949e', fontSize:'.9rem'}}>No pages registered yet.</div>
-            : pages.map(p => (
-                <div key={p.name} style={s.row}>
-                  <a href={'#/apps/' + p.name} style={s.link}>{p.name}</a>
-                  <span style={{color:'#8b949e', fontSize:'.75rem'}}>{p.description || ''}</span>
-                </div>
-              ))
-          }
-        </div>
+      <div style={s.card}>
+        <div style={s.h2}>Registered Pages</div>
+        {pages.length === 0
+          ? <div style={{color:'#8b949e', fontSize:'.9rem'}}>No pages registered yet.</div>
+          : pages.map(p => (
+              <div key={p.name} style={{...s.row, gap:'.75rem'}}>
+                <select style={s.select} defaultValue="" onChange={e => {
+                  const v = e.target.value; e.target.value = '';
+                  if (v === 'open')   window.location.hash = '/apps/' + p.name;
+                  else if (v === 'source') window.open('/api/pages/' + p.name + '/source', '_blank');
+                  else if (v === 'delete') setConfirmDeletePage(p.name);
+                }}>
+                  <option value="" disabled>Actions</option>
+                  <option value="open">Open</option>
+                  <option value="source">View Source</option>
+                  <option value="delete">Delete…</option>
+                </select>
+                <a href={'#/apps/' + p.name} style={{...s.link, flex:1, minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>{p.name}</a>
+                <span style={{color:'#8b949e', fontSize:'.75rem', flexShrink:0}}>{p.description || ''}</span>
+                {pageDeleteStatus[p.name] && <span style={{color:'#8b949e', fontSize:'.75rem', flexShrink:0}}>{pageDeleteStatus[p.name]}</span>}
+              </div>
+            ))
+        }
+      </div>
 
-        <div style={s.card}>
-          <div style={s.h2}>Quick Links</div>
-          <div style={{...s.row, borderBottom:'none', paddingBottom:'.25rem'}}>
-            <a href="#/apps/groot-artifacts" style={s.link}>Artifact Browser →</a>
-          </div>
-          <div style={{...s.row, borderBottom:'none', paddingBottom:'.25rem'}}>
-            <a href="/docs" style={s.link} target="_blank" rel="noreferrer">API Docs →</a>
-          </div>
-          <div style={{...s.row, borderBottom:'none', paddingBottom:'.25rem'}}>
-            <a href="/health" style={s.link} target="_blank" rel="noreferrer">Health Check →</a>
-          </div>
+      <div style={s.card}>
+        <div style={s.h2}>Quick Links</div>
+        <div style={{...s.row, borderBottom:'none', paddingBottom:'.25rem'}}>
+          <a href="#/apps/groot-artifacts" style={s.link}>Artifact Browser →</a>
+        </div>
+        <div style={{...s.row, borderBottom:'none', paddingBottom:'.25rem'}}>
+          <a href="/docs" style={s.link} target="_blank" rel="noreferrer">API Docs →</a>
+        </div>
+        <div style={{...s.row, borderBottom:'none', paddingBottom:'.25rem'}}>
+          <a href="/health" style={s.link} target="_blank" rel="noreferrer">Health Check →</a>
         </div>
       </div>
 

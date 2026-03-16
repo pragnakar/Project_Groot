@@ -266,6 +266,13 @@ class ArtifactStore:
 
         return [SchemaMeta(name=r[0], created_at=r[1]) for r in rows]
 
+    async def delete_schema(self, name: str) -> bool:
+        """Delete a schema by name. Returns True if deleted, False if not found."""
+        async with aiosqlite.connect(self._db_path) as db:
+            cur = await db.execute("DELETE FROM schemas WHERE name = ?", (name,))
+            await db.commit()
+        return cur.rowcount > 0
+
     # ------------------------------------------------------------------
     # Event operations
     # ------------------------------------------------------------------

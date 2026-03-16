@@ -186,3 +186,25 @@ Notable:
   - Error-state apps can be deleted without force=true; only status="loaded" apps require it
 Next: Merge feature/delete-app → main.
 Evidence: pytest 184 passed. SHA fed4ea9 on remote branch feature/delete-app.
+
+---
+
+2026-03-16 | task-868hwpqf3 | Import App from ZIP — complete
+---
+Context: Delete App on main (184 tests). Import App task at HAND OFF TO CLAUDE CODE. Branch feature/import-app off main.
+Work:
+  868hwpqf3 — POST /api/apps/import: multipart ZIP upload, validate, extract, hot-load.
+    groot/models.py: AppImportResult(name, status, tools_registered, pages_registered, message)
+    groot/app_routes.py: import_app() — 10 MB limit, ZIP validation, single top-level dir detection, Python identifier check, path traversal rejection, __init__.py required, extract to groot_apps/{name}/, importlib hot-load (reload if re-importing), returns AppImportResult
+    groot/server.py: added /api/apps/import to _dynamic_paths for idempotent lifespan mounting
+    tests/test_import_app.py: 14 tests — auth, 7 validation cases (non-zip, missing init, bare files, multiple dirs, invalid name, path traversal, oversized), happy path (mocked loader), disk extraction, 422 loader missing
+Result:
+  Branch: feature/import-app @ SHA 81c41ed — pushed to remote
+  Full suite: 198/198 passed — zero failures, zero warnings
+  Task 868hwpqf3 COMPLETE in ClickUp.
+Notable:
+  - Happy path tests mock importlib.import_module — extracted code in tmp_path is not on sys.path, so real import would fail in tests; extraction itself tested separately
+  - Path traversal check covers both absolute paths and .. components
+  - Hot-load uses importlib.reload() if module already in sys.modules (re-import scenario)
+Next: Merge feature/import-app → main.
+Evidence: pytest 198 passed. SHA 81c41ed on remote branch feature/import-app.

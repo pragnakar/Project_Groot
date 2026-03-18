@@ -261,7 +261,10 @@ function Page() {
     return p.name.toLowerCase().includes(q) || (p.description || '').toLowerCase().includes(q);
   });
 
-  const navArtifacts = tab => { window.location.hash = '#/artifacts?tab=' + tab; };
+  const navArtifacts = tab => {
+    window.history.pushState({}, '', '/artifacts?tab=' + tab);
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  };
 
   if (loading) return <div style={{color:'#8b949e', padding:'3rem 0', textAlign:'center'}}>Loading dashboard\u2026</div>;
   if (error)   return <div style={{color:'#ff6b6b', padding:'1rem'}}>Error: {error}</div>;
@@ -469,8 +472,8 @@ function Page() {
   const [sourceModal, setSourceModal] = React.useState(null);
 
   React.useEffect(() => {
-    const m = window.location.hash.match(/[?&]tab=(\\w+)/);
-    if (m) setTab(m[1]);
+    const m = new URLSearchParams(window.location.search).get('tab');
+    if (m) setTab(m);
     Promise.all([
       fetch('/api/system/artifacts').then(r => r.ok ? r.json() : null),
       fetch('/api/pages').then(r => r.ok ? r.json() : []),

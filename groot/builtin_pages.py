@@ -70,9 +70,8 @@ function Page() {
   const [apiKey, setApiKey]   = React.useState(() => sessionStorage.getItem('groot_key') || '');
   const [keyStatus, setKeyStatus] = React.useState('idle');
 
-  // Auto-discover API key from server on first load if not already saved
+  // Always sync API key from server on load — overwrites any stale sessionStorage value
   React.useEffect(() => {
-    if (sessionStorage.getItem('groot_key')) return;
     fetch('/api/config').then(r => r.ok ? r.json() : null).then(cfg => {
       if (cfg && cfg.api_key) {
         setApiKey(cfg.api_key);

@@ -12,21 +12,17 @@ Groot gives any MCP-compatible LLM agent a persistent execution layer: a SQLite 
 # Install
 pip install -e ".[dev]"
 
-# Configure
-cp .env.example .env
-
-# Run HTTP server (REST API + SSE MCP transport on same port)
+# Run HTTP server (REST API + dashboard at http://localhost:8000)
 python -m groot
 
 # Custom port
 python -m groot --port 8001
 
-# Run MCP stdio transport (for Claude Desktop)
-python -m groot --mcp-stdio
-
 # Run tests
 pytest
 ```
+
+A new API key is printed to the terminal on every startup. Use it in the dashboard or as `X-Groot-Key` header in API calls.
 
 ---
 
@@ -34,9 +30,11 @@ pytest
 
 | Mode | Command | Description |
 |---|---|---|
-| HTTP + SSE | `python -m groot` | REST API and MCP SSE on the same port (default) |
-| stdio | `python -m groot --mcp-stdio` | MCP stdio for Claude Desktop |
-| Both | `python -m groot --mcp-stdio --http` | stdio foreground, HTTP background |
+| HTTP + SSE | `python -m groot` | REST API, dashboard, and MCP SSE on port 8000 (default) |
+| stdio only | `python -m groot --mcp-stdio` | MCP stdio for Claude Desktop — **no HTTP server** |
+| stdio + HTTP | `python -m groot --mcp-stdio --http` | stdio for Claude Desktop **and** HTTP server on port 8000 |
+
+> **Important:** `--mcp-stdio` alone does not start an HTTP server. To open groot pages in a browser while Claude Desktop is connected, you must use `--mcp-stdio --http` (see Claude Desktop setup below).
 
 ---
 
@@ -81,7 +79,7 @@ All tool routes require authentication via `X-Groot-Key` header or `?key=` query
 
 ## MCP integration
 
-### Claude Desktop (stdio)
+### Claude Desktop (stdio + HTTP)
 
 Edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
@@ -89,23 +87,42 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
 {
   "mcpServers": {
     "groot": {
-      "command": "/opt/anaconda3/bin/python",
-      "args": ["-m", "groot", "--mcp-stdio"],
-      "cwd": "/path/to/Project_Groot",
+      "command": "/absolute/path/to/python",
+      "args": ["-m", "groot", "--mcp-stdio", "--http"],
       "env": {
-        "GROOT_DB_PATH": "/path/to/Project_Groot/groot.db",
-        "GROOT_ARTIFACT_DIR": "/path/to/Project_Groot/artifacts"
+        "GROOT_DB_PATH": "/absolute/path/to/Project_Groot/groot.db",
+        "GROOT_ARTIFACT_DIR": "/absolute/path/to/Project_Groot/artifacts",
+        "GROOT_API_KEYS": "your-secret-key-here",
+        "GROOT_HOST": "127.0.0.1",
+        "GROOT_PORT": "8000"
       }
     }
   }
 }
 ```
 
-> Use the **absolute path** to your Python executable (`which python`). Claude Desktop launches with a minimal PATH and won't find `python` otherwise.
+**Required:** use absolute paths everywhere. Claude Desktop launches with a minimal `PATH` — relative paths and `python` without a full path will fail.
 
-Restart Claude Desktop. The 🔨 hammer icon confirms Groot tools are available.
+- Find your Python path: `which python` (or `which python3`)
+- Find your project path: `pwd` inside the Project_Groot directory
 
-**Test it:** ask Claude to `create a Groot page called hello with a live clock`. Then open `http://localhost:8000/#/apps/hello` (requires HTTP server running separately via `python -m groot`).
+**`GROOT_API_KEYS`** — set this to a stable secret string (any value you choose). Without it, a new random key is generated on every restart, which means the dashboard's API key field needs to be updated each time.
+
+Restart Claude Desktop. The hammer icon in the toolbar confirms Groot tools are connected.
+
+**Test it:** ask Claude to `create a Groot page called hello with a live clock`. Then open `http://localhost:8000/apps/hello` in your browser. The dashboard is at `http://localhost:8000/`.
+
+---
+
+### Standalone HTTP server (no Claude Desktop)
+
+```bash
+python -m groot
+```
+
+Groot prints the API key and dashboard URL to the terminal on startup. Open `http://localhost:8000/` in your browser.
+
+---
 
 ### Remote SSE clients
 
@@ -117,11 +134,11 @@ Connect to `http://localhost:8000/mcp/sse?key=<api-key>` from any SSE-capable MC
 
 | Variable | Default | Description |
 |---|---|---|
-| `GROOT_API_KEYS` | `groot_sk_dev_key_01` | Comma-separated API keys |
-| `GROOT_DB_PATH` | `groot.db` | SQLite database path |
-| `GROOT_ARTIFACT_DIR` | `artifacts` | Blob storage directory |
-| `GROOT_APPS` | `_example` | Comma-separated app modules to load |
-| `GROOT_HOST` | `0.0.0.0` | HTTP server host |
+| `GROOT_API_KEYS` | *(auto-generated)* | Comma-separated API keys. If unset, a random key is generated and printed at startup. Set this to a stable value when using Claude Desktop so the key doesn't change on every restart. |
+| `GROOT_DB_PATH` | `groot.db` | SQLite database path (use absolute path in Claude Desktop config) |
+| `GROOT_ARTIFACT_DIR` | `artifacts` | Blob storage directory (use absolute path in Claude Desktop config) |
+| `GROOT_APPS` | `_example` | Comma-separated app modules to auto-load from `groot_apps/` |
+| `GROOT_HOST` | `0.0.0.0` | HTTP server bind address. Use `127.0.0.1` for local-only access. |
 | `GROOT_PORT` | `8000` | HTTP server port |
 | `GROOT_ENV` | `development` | `development` or `production` |
 

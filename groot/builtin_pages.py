@@ -331,7 +331,7 @@ function Page() {
     return <span style={{display:'inline-block', padding:'.05rem .35rem', borderRadius:3, fontSize:'.65rem', fontWeight:600, background:'#21262d', color:'#6e7681', marginRight:'.4rem'}}>page</span>;
   };
 
-  const appsCount = webApps.filter(a => a.kind !== 'page').length;
+  const scrollToWebApps = () => { const el = document.getElementById('web-apps-section'); if (el) el.scrollIntoView({behavior:'smooth', block:'start'}); };
 
   const navArtifacts = tab => {
     window.history.pushState({}, '', '/artifacts?tab=' + tab);
@@ -412,8 +412,8 @@ function Page() {
 
       {state && (
         <div style={s.grid}>
-          <div style={{...s.statCard, cursor:'pointer'}} onClick={() => navArtifacts('pages')} title="View pages">
-            <div style={s.bigNum}>{state.page_count}</div><div style={s.bigLabel}>Pages</div>
+          <div style={{...s.statCard, cursor:'pointer'}} onClick={scrollToWebApps} title="View web apps">
+            <div style={s.bigNum}>{webApps.length}</div><div style={s.bigLabel}>Web Apps</div>
           </div>
           <div style={{...s.statCard, cursor:'pointer'}} onClick={() => navArtifacts('blobs')} title="View blobs">
             <div style={s.bigNum}>{state.blob_count}</div><div style={s.bigLabel}>Blobs</div>
@@ -427,9 +427,6 @@ function Page() {
           <div style={s.statCard}>
             <div style={{...s.bigNum, fontSize:'1.3rem'}}>{fmtUptime(state.uptime_seconds)}</div>
             <div style={s.bigLabel}>Uptime</div>
-          </div>
-          <div style={s.statCard}>
-            <div style={s.bigNum}>{appsCount}</div><div style={s.bigLabel}>Apps</div>
           </div>
         </div>
       )}
@@ -447,7 +444,7 @@ function Page() {
         </div>
       </div>
 
-      <div style={s.card}>
+      <div id="web-apps-section" style={s.card}>
         <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'.75rem', flexWrap:'wrap', gap:'.5rem'}}>
           <div style={{...s.h2, marginBottom:0}}>Available Web Apps</div>
           <div style={{display:'flex', gap:'.5rem', alignItems:'center', flexWrap:'wrap'}}>

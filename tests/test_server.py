@@ -114,6 +114,19 @@ def test_update_page(client, auth_headers):
     assert resp.json()["name"] == "ui"
 
 
+def test_upsert_page_create(client, auth_headers):
+    resp = client.post("/api/tools/upsert_page", json={"name": "ups", "jsx_code": "<div>v1</div>"}, headers=auth_headers)
+    assert resp.status_code == 200
+    assert resp.json()["name"] == "ups"
+
+
+def test_upsert_page_update(client, auth_headers):
+    client.post("/api/tools/upsert_page", json={"name": "ups2", "jsx_code": "<div>v1</div>"}, headers=auth_headers)
+    resp = client.post("/api/tools/upsert_page", json={"name": "ups2", "jsx_code": "<div>v2</div>"}, headers=auth_headers)
+    assert resp.status_code == 200
+    assert resp.json()["name"] == "ups2"
+
+
 def test_delete_page(client, auth_headers):
     client.post("/api/tools/create_page", json={"name": "gone", "jsx_code": "<div/>"}, headers=auth_headers)
     resp = client.post("/api/tools/delete_page", json={"name": "gone"}, headers=auth_headers)

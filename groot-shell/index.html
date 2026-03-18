@@ -340,17 +340,24 @@
     function App() {
       const path    = usePathname();
       const current = parseRoute(path);
+
+      // Standalone pages and app pages render fullscreen — no Groot chrome
+      if (current.route === 'page') {
+        return <DynamicPage key={current.name} name={current.name} />;
+      }
+      if (current.route === 'app-page') {
+        return (
+          <DynamicAppPage key={`${current.app}/${current.page}`}
+                          app={current.app} page={current.page} />
+        );
+      }
+
       return (
         <div id="app">
           <Nav current={current} />
           <main>
             {current.route === 'dashboard' && <GrootDashboard />}
             {current.route === 'artifacts' && <ArtifactBrowser />}
-            {current.route === 'page'      && <DynamicPage key={current.name} name={current.name} />}
-            {current.route === 'app-page'  && (
-              <DynamicAppPage key={`${current.app}/${current.page}`}
-                              app={current.app} page={current.page} />
-            )}
             {current.route === 'not-found' && (
               <div className="error-box"><strong>Route not found</strong></div>
             )}

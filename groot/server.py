@@ -39,6 +39,7 @@ from groot.models import (
     ToolError,
     UpdateAppPageRequest,
     UpdatePageRequest,
+    UpsertPageRequest,
     WriteBlobRequest,
 )
 from groot.app_routes import get_app_routes
@@ -318,6 +319,19 @@ async def update_page(
     auth: AuthContext = Depends(verify_api_key),
 ):
     result = await registry.call("update_page", store=store, name=body.name, jsx_code=body.jsx_code)
+    if isinstance(result, ToolError):
+        raise HTTPException(status_code=400, detail=result.model_dump())
+    return result
+
+
+@app.post("/api/tools/upsert_page", response_model=PageResult)
+async def upsert_page(
+    body: UpsertPageRequest,
+    store: ArtifactStore = Depends(get_store),
+    registry: ToolRegistry = Depends(get_registry),
+    auth: AuthContext = Depends(verify_api_key),
+):
+    result = await registry.call("upsert_page", store=store, name=body.name, jsx_code=body.jsx_code, description=body.description)
     if isinstance(result, ToolError):
         raise HTTPException(status_code=400, detail=result.model_dump())
     return result

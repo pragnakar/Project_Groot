@@ -410,7 +410,7 @@ function Page() {
               const isSys = isSystemPage(p.name);
               const isEx  = isExamplePage(p.name);
               const dropItems = [
-                { label: 'Open',        onClick: () => { window.location.hash = '#/apps/' + p.name; } },
+                { label: 'Open',        onClick: () => { window.open('/apps/' + p.name, '_blank'); } },
                 { label: 'View Source', onClick: () => openSource(p.name) },
               ];
               if (!isSys) dropItems.push({ label: 'Delete\u2026', onClick: () => setConfirmDeletePage(p.name), danger: true });
@@ -419,7 +419,7 @@ function Page() {
                   <Dropdown items={dropItems} />
                   <div style={{flex:1, minWidth:0}}>
                     <div style={{display:'flex', alignItems:'center', flexWrap:'wrap', gap:'.2rem'}}>
-                      <a href={'#/apps/' + p.name} style={{...s.link, wordBreak:'break-all'}}>{p.name}</a>
+                      <a href={'/apps/' + p.name} target="_blank" rel="noopener" style={{...s.link, wordBreak:'break-all'}}>{p.name}</a>
                       {isSys && <span style={s.tagSystem}>system</span>}
                       {isEx  && <span style={s.tagExample}>example</span>}
                     </div>
@@ -556,7 +556,7 @@ function Page() {
                 <div style={{background:'#161b22', border:'1px solid #30363d', borderRadius:8, overflow:'hidden'}}>
                   {pages.map((p, i) => (
                     <div key={p.name} style={{display:'flex', alignItems:'center', gap:'.75rem', padding:'.5rem 1rem', borderBottom: i < pages.length - 1 ? '1px solid #21262d' : 'none', fontSize:'.85rem'}}>
-                      <a href={'#/apps/' + p.name} style={s.link}>{p.name}</a>
+                      <a href={'/apps/' + p.name} target="_blank" rel="noopener" style={s.link}>{p.name}</a>
                       <span style={{color:'#8b949e', flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', fontSize:'.78rem'}} title={p.description || ''}>{p.description || <em style={{color:'#4a5568'}}>No description</em>}</span>
                       <span style={{color:'#4a5568', fontSize:'.75rem', whiteSpace:'nowrap'}}>{p.created_at || ''}</span>
                       <button style={{...s.btn, padding:'.15rem .5rem', fontSize:'.75rem', color:'#8b949e'}} onClick={() => openSource(p.name)}>Source</button>
@@ -568,7 +568,7 @@ function Page() {
                   <div key={p.name} style={s.card}>
                     <div style={s.row}>
                       <div style={{display:'flex', flexDirection:'column', gap:'.2rem', flex:1, minWidth:0}}>
-                        <a href={'#/apps/' + p.name} style={s.link}>{p.name}</a>
+                        <a href={'/apps/' + p.name} target="_blank" rel="noopener" style={s.link}>{p.name}</a>
                         <span
                           title={p.description || ''}
                           style={{color: p.description ? '#8b949e' : '#4a5568', fontStyle: p.description ? 'normal' : 'italic', fontSize:'.78rem', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}
@@ -579,7 +579,7 @@ function Page() {
                       <span style={{color:'#8b949e', fontSize:'.75rem', whiteSpace:'nowrap', marginLeft:'1rem'}}>{p.created_at || ''}</span>
                     </div>
                     <div style={{display:'flex', gap:'.5rem', marginTop:'.5rem'}}>
-                      <button style={{...s.btn, color:'#6366f1', borderColor:'#6366f1'}} onClick={() => { window.location.hash = '#/apps/' + p.name; }}>Open</button>
+                      <button style={{...s.btn, color:'#6366f1', borderColor:'#6366f1'}} onClick={() => { window.open('/apps/' + p.name, '_blank'); }}>Open</button>
                       <button style={s.btn} onClick={() => openSource(p.name)}>Source</button>
                     </div>
                   </div>

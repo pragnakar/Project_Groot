@@ -264,6 +264,31 @@ class ArtifactStore:
             for r in rows
         ]
 
+    async def upsert_page(self, name: str, jsx_code: str, description: str = "") -> PageResult:
+        """Create or update a page atomically. Never raises if page exists or doesn't exist."""
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute(
+                "SELECT description, created_at FROM pages WHERE name = ?", (name,)
+            ) as cur:
+                row = await cur.fetchone()
+            now = _now()
+            if row is None:
+                await db.execute(
+                    "INSERT INTO pages (name, jsx_code, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+                    (name, jsx_code, description, now, now),
+                )
+                created_at = now
+            else:
+                existing_description = description if description else row[0]
+                created_at = row[1]
+                await db.execute(
+                    "UPDATE pages SET jsx_code = ?, description = ?, updated_at = ? WHERE name = ?",
+                    (jsx_code, existing_description, now, name),
+                )
+                description = existing_description
+            await db.commit()
+        return PageResult(name=name, url=_page_url(name), description=description, created_at=created_at, updated_at=now)
+
     async def delete_page(self, name: str) -> bool:
         """Delete a page. Returns True if deleted, False if not found."""
         async with aiosqlite.connect(self._db_path) as db:

@@ -170,6 +170,11 @@ async def update_page(store: ArtifactStore, name: str, jsx_code: str) -> PageRes
     return await store.update_page(name, jsx_code)
 
 
+async def upsert_page(store: ArtifactStore, name: str, jsx_code: str, description: str = "") -> PageResult:
+    """Create or update a page atomically. Safe to call whether or not the page exists."""
+    return await store.upsert_page(name, jsx_code, description)
+
+
 async def list_pages(store: ArtifactStore) -> list[PageMeta]:
     """List all registered pages with their URLs and metadata."""
     return await store.list_pages()
@@ -283,10 +288,10 @@ async def list_app_pages(store: ArtifactStore, app_name: str) -> list[AppPageMet
 # ---------------------------------------------------------------------------
 
 def register_core_tools(registry: ToolRegistry, store: ArtifactStore) -> None:
-    """Register all 19 core tools with the registry."""
+    """Register all 20 core tools with the registry."""
     for fn in [
         write_blob, read_blob, list_blobs, delete_blob,
-        create_page, update_page, list_pages, delete_page,
+        create_page, update_page, upsert_page, list_pages, delete_page,
         define_schema, get_schema, list_schemas,
         log_event, get_system_state, list_artifacts,
         get_groot_config,

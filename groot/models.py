@@ -150,6 +150,12 @@ class UpdatePageRequest(BaseModel):
     jsx_code: str
 
 
+class UpsertPageRequest(BaseModel):
+    name: str
+    jsx_code: str
+    description: str = ""
+
+
 class DefineSchemaRequest(BaseModel):
     name: str
     definition: dict[str, Any]  # the JSON schema to store

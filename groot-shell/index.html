@@ -86,25 +86,62 @@
 
   <script type="text/babel">
     // ---------------------------------------------------------------------------
-    // Hash-based router
+    // Path-based router (replaces hash router)
     // ---------------------------------------------------------------------------
-    function useHash() {
-      const [hash, setHash] = React.useState(window.location.hash || '#/');
+    function usePathname() {
+      const [path, setPath] = React.useState(window.location.pathname);
       React.useEffect(() => {
-        const h = () => setHash(window.location.hash || '#/');
-        window.addEventListener('hashchange', h);
-        return () => window.removeEventListener('hashchange', h);
+        const onPop = () => setPath(window.location.pathname);
+        window.addEventListener('popstate', onPop);
+        return () => window.removeEventListener('popstate', onPop);
       }, []);
-      return hash;
+      return path;
     }
 
-    function parseRoute(hash) {
-      const path = hash.replace(/^#/, '') || '/';
+    function navigate(url) {
+      window.history.pushState({}, '', url);
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    }
+
+    function parseRoute(path) {
       if (path === '/' || path === '') return { route: 'dashboard' };
       if (path === '/artifacts' || path.startsWith('/artifacts?')) return { route: 'artifacts' };
-      const m = path.match(/^\/apps\/([^/?#]+)/);
-      if (m) return { route: 'page', name: m[1] };
+      // /apps/{app}/{page} — multi-page app page (two segments)
+      const appPage = path.match(/^\/apps\/([^/]+)\/([^/?#]+)\/?$/);
+      if (appPage) return { route: 'app-page', app: appPage[1], page: appPage[2] };
+      // /apps/{app}/ — app root index (trailing slash distinguishes from standalone page)
+      const appRoot = path.match(/^\/apps\/([^/]+)\/$/);
+      if (appRoot) return { route: 'app-page', app: appRoot[1], page: 'index' };
+      // /apps/{name} — standalone page (no trailing slash, single segment)
+      const standalone = path.match(/^\/apps\/([^/]+)$/);
+      if (standalone) return { route: 'page', name: standalone[1] };
       return { route: 'not-found' };
+    }
+
+    // ---------------------------------------------------------------------------
+    // Shared JSX transform — used by DynamicPage and DynamicAppPage
+    // ---------------------------------------------------------------------------
+    function _transformJsx(rawJsx) {
+      const exportMatch = rawJsx.match(
+        /^\s*export\s+default\s+(?:function|const|class)\s+([A-Za-z_$][A-Za-z0-9_$]*)/m
+      );
+      const exportedName = exportMatch ? exportMatch[1] : null;
+
+      const jsx = rawJsx
+        .replace(/^\s*import\s+.*$/gm, '')
+        .replace(/^\s*export\s+default\s+/gm, '')
+        .replace(/^\s*export\s+/gm, '');
+
+      const _hooks = ['useState','useEffect','useRef','useCallback','useMemo',
+                      'useContext','useReducer','useLayoutEffect','useId'];
+      const _hookVals = _hooks.map(h => React[h]);
+      const _retExpr = `typeof Page !== 'undefined' ? Page : ${
+        exportedName ? `typeof ${exportedName} !== 'undefined' ? ${exportedName} :` : ''
+      } undefined`;
+
+      const code = Babel.transform(jsx, { presets: ['react'] }).code;
+      const fn = new Function('React', ..._hooks, `"use strict"; ${code}; return ${_retExpr};`);
+      return fn(React, ..._hookVals) || null;
     }
 
     // ---------------------------------------------------------------------------
@@ -130,7 +167,7 @@
     }
 
     // ---------------------------------------------------------------------------
-    // DynamicPage — fetches JSX, transforms with Babel, evaluates, renders
+    // DynamicPage — standalone pages at /apps/{name}
     // ---------------------------------------------------------------------------
     function DynamicPage({ name }) {
       const [state, setState] = React.useState({ status: 'loading' });
@@ -143,29 +180,13 @@
             return res.text();
           })
           .then(rawJsx => {
-            // Capture export default function/const name before stripping
-            const exportMatch = rawJsx.match(/^\s*export\s+default\s+(?:function|const|class)\s+([A-Za-z_$][A-Za-z0-9_$]*)/m);
-            const exportedName = exportMatch ? exportMatch[1] : null;
-
-            // Strip import/export statements — React is globally available in the shell
-            const jsx = rawJsx
-              .replace(/^\s*import\s+.*$/gm, '')
-              .replace(/^\s*export\s+default\s+/gm, '')
-              .replace(/^\s*export\s+/gm, '');
             try {
-              // Destructure all common hooks so LLM-generated code can use them directly
-              const _hooks = ['useState','useEffect','useRef','useCallback','useMemo',
-                              'useContext','useReducer','useLayoutEffect','useId'];
-              const _hookVals = _hooks.map(h => React[h]);
-              const _retExpr = `typeof Page !== 'undefined' ? Page : ${exportedName ? `typeof ${exportedName} !== 'undefined' ? ${exportedName} :` : ''} undefined`;
-
-              const code = Babel.transform(jsx, { presets: ['react'] }).code;
-              const tryFn = new Function('React', ..._hooks, `"use strict"; ${code}; return ${_retExpr};`);
-              let Component = tryFn(React, ..._hookVals);
-
+              let Component = _transformJsx(rawJsx);
               if (!Component) {
-                // Wrap bare JSX as a Page component
-                const wrapped = Babel.transform(`function Page(){return(${jsx.trim()});}`, { presets: ['react'] }).code;
+                const _hooks = ['useState','useEffect','useRef','useCallback','useMemo',
+                                'useContext','useReducer','useLayoutEffect','useId'];
+                const _hookVals = _hooks.map(h => React[h]);
+                const wrapped = Babel.transform(`function Page(){return(${rawJsx.trim()});}`, { presets: ['react'] }).code;
                 const wrapFn = new Function('React', ..._hooks, `"use strict"; ${wrapped}; return Page;`);
                 Component = wrapFn(React, ..._hookVals);
               }
@@ -201,6 +222,77 @@
     }
 
     // ---------------------------------------------------------------------------
+    // DynamicAppPage — multi-page apps at /apps/{app}/{page}
+    // ---------------------------------------------------------------------------
+    function DynamicAppPage({ app, page }) {
+      const [layoutState, setLayoutState] = React.useState({ status: 'loading' });
+      const [pageState, setPageState] = React.useState({ status: 'loading' });
+
+      // Fetch layout (204 = no layout, degrade gracefully)
+      React.useEffect(() => {
+        fetch(`/api/app-pages/${encodeURIComponent(app)}/layout/source`)
+          .then(res => {
+            if (res.status === 204) return null;
+            if (!res.ok) return null;
+            return res.text();
+          })
+          .then(jsx => setLayoutState({ status: 'ready', jsx: jsx || '' }))
+          .catch(() => setLayoutState({ status: 'ready', jsx: '' }));
+      }, [app]);
+
+      // Fetch page JSX
+      React.useEffect(() => {
+        setPageState({ status: 'loading' });
+        fetch(`/api/app-pages/${encodeURIComponent(app)}/${encodeURIComponent(page)}/source`)
+          .then(res => {
+            if (!res.ok) throw Object.assign(new Error(`App page not found: ${app}/${page}`), { type: 'not-found' });
+            return res.text();
+          })
+          .then(rawJsx => {
+            try {
+              const Component = _transformJsx(rawJsx);
+              if (!Component) throw new Error('No component found in JSX');
+              setPageState({ status: 'ready', Component });
+            } catch (e) {
+              setPageState({ status: 'transform-error', message: e.message });
+            }
+          })
+          .catch(e => {
+            setPageState({ status: e.type === 'not-found' ? 'not-found' : 'fetch-error', message: e.message });
+          });
+      }, [app, page]);
+
+      if (layoutState.status === 'loading' || pageState.status === 'loading')
+        return <div className="loading">Loading {app}/{page}…</div>;
+
+      if (pageState.status === 'not-found') return (
+        <div className="error-box">
+          <strong>App page not found: {app}/{page}</strong>
+          <p style={{marginTop:'.5rem', color:'var(--muted)'}}>
+            Use create_app_page to register this route.
+          </p>
+        </div>
+      );
+      if (pageState.status === 'fetch-error') return (
+        <div className="error-box"><strong>Failed to load page</strong><pre>{pageState.message}</pre></div>
+      );
+      if (pageState.status === 'transform-error') return (
+        <div className="error-box"><strong>JSX transform error</strong><pre>{pageState.message}</pre></div>
+      );
+
+      const { Component } = pageState;
+      const layoutJsx = layoutState.jsx;
+
+      if (layoutJsx) {
+        try {
+          const Layout = _transformJsx(layoutJsx);
+          if (Layout) return <ErrorBoundary><Layout><Component /></Layout></ErrorBoundary>;
+        } catch (_) { /* layout failed — render page without it */ }
+      }
+      return <ErrorBoundary><Component /></ErrorBoundary>;
+    }
+
+    // ---------------------------------------------------------------------------
     // Built-in pages — delegated to DynamicPage (served from artifact store)
     // ---------------------------------------------------------------------------
     function GrootDashboard() {
@@ -214,14 +306,27 @@
     // ---------------------------------------------------------------------------
     // Navigation
     // ---------------------------------------------------------------------------
+    function NavLink({ href, children, className }) {
+      const handleClick = e => {
+        // Only intercept same-origin links without modifier keys
+        if (!e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) {
+          e.preventDefault();
+          navigate(href);
+        }
+      };
+      return <a href={href} className={className} onClick={handleClick}>{children}</a>;
+    }
+
     function Nav({ current }) {
       return (
         <nav>
-          <a className="logo" href="#/">Groot</a>
-          <a href="#/"         className={current.route === 'dashboard' ? 'active' : ''}>Dashboard</a>
-          <a href="#/artifacts" className={current.route === 'artifacts' ? 'active' : ''}>Artifacts</a>
+          <NavLink className="logo" href="/">Groot</NavLink>
+          <NavLink href="/"         className={current.route === 'dashboard' ? 'active' : ''}>Dashboard</NavLink>
+          <NavLink href="/artifacts" className={current.route === 'artifacts' ? 'active' : ''}>Artifacts</NavLink>
           <div className="nav-right">
-            {current.route === 'page' && <span className="page-chip">{current.name}</span>}
+            {current.route === 'app-page' && (
+              <span className="page-chip">{current.app}/{current.page}</span>
+            )}
             <a href="/docs" target="_blank" rel="noopener">API Docs</a>
             <a href="/health" target="_blank" rel="noopener">Health</a>
           </div>
@@ -233,16 +338,22 @@
     // App
     // ---------------------------------------------------------------------------
     function App() {
-      const hash    = useHash();
-      const current = parseRoute(hash);
+      const path    = usePathname();
+      const current = parseRoute(path);
       return (
         <div id="app">
           <Nav current={current} />
           <main>
-            {current.route === 'dashboard'  && <GrootDashboard />}
-            {current.route === 'artifacts'  && <ArtifactBrowser />}
-            {current.route === 'page'       && <DynamicPage key={current.name} name={current.name} />}
-            {current.route === 'not-found'  && <div className="error-box"><strong>Route not found</strong></div>}
+            {current.route === 'dashboard' && <GrootDashboard />}
+            {current.route === 'artifacts' && <ArtifactBrowser />}
+            {current.route === 'page'      && <DynamicPage key={current.name} name={current.name} />}
+            {current.route === 'app-page'  && (
+              <DynamicAppPage key={`${current.app}/${current.page}`}
+                              app={current.app} page={current.page} />
+            )}
+            {current.route === 'not-found' && (
+              <div className="error-box"><strong>Route not found</strong></div>
+            )}
           </main>
         </div>
       );

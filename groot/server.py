@@ -17,12 +17,18 @@ from groot.artifact_store import ArtifactStore
 from groot.auth import AuthContext, verify_api_key
 from groot.config import Settings, get_settings
 from groot.models import (
+    AppPageMeta,
+    AppPageResult,
+    AppResult,
     ArtifactSummary,
     BlobData,
     BlobMeta,
     BlobResult,
+    CreateAppPageRequest,
+    CreateAppRequest,
     CreatePageRequest,
     DefineSchemaRequest,
+    ListAppPagesRequest,
     LogEventRequest,
     LogResult,
     PageMeta,
@@ -31,6 +37,7 @@ from groot.models import (
     SchemaResult,
     SystemState,
     ToolError,
+    UpdateAppPageRequest,
     UpdatePageRequest,
     WriteBlobRequest,
 )
@@ -117,6 +124,8 @@ async def lifespan(app: FastAPI):
         "/api/pages", "/api/pages/{name}/source", "/api/pages/{name}/meta",
         "/api/apps", "/api/apps/{name}", "/api/apps/{name}/health",
         "/api/apps/import",
+        "/api/app-pages/{app_name}/{page_name}/source",
+        "/api/app-pages/{app_name}/layout/source",
     }
     app.router.routes[:] = [r for r in app.router.routes if getattr(r, "path", None) not in _dynamic_paths]
     app.include_router(page_server.get_routes())
@@ -332,6 +341,66 @@ async def delete_page(
 ):
     result = await registry.call("delete_page", store=store, name=body.name)
     return {"deleted": result}
+
+
+# ---------------------------------------------------------------------------
+# Tool routes — Multi-page apps
+# ---------------------------------------------------------------------------
+
+@app.post("/api/tools/create_app", response_model=AppResult)
+async def create_app_route(
+    body: CreateAppRequest,
+    store: ArtifactStore = Depends(get_store),
+    registry: ToolRegistry = Depends(get_registry),
+    auth: AuthContext = Depends(verify_api_key),
+):
+    result = await registry.call("create_app", store=store,
+                                 name=body.name, description=body.description, layout_jsx=body.layout_jsx)
+    if isinstance(result, ToolError):
+        raise HTTPException(status_code=400, detail=result.model_dump())
+    return result
+
+
+@app.post("/api/tools/create_app_page", response_model=AppPageResult)
+async def create_app_page_route(
+    body: CreateAppPageRequest,
+    store: ArtifactStore = Depends(get_store),
+    registry: ToolRegistry = Depends(get_registry),
+    auth: AuthContext = Depends(verify_api_key),
+):
+    result = await registry.call("create_app_page", store=store,
+                                 app_name=body.app, page_name=body.page,
+                                 jsx_code=body.jsx_code, description=body.description)
+    if isinstance(result, ToolError):
+        raise HTTPException(status_code=400, detail=result.model_dump())
+    return result
+
+
+@app.post("/api/tools/update_app_page", response_model=AppPageResult)
+async def update_app_page_route(
+    body: UpdateAppPageRequest,
+    store: ArtifactStore = Depends(get_store),
+    registry: ToolRegistry = Depends(get_registry),
+    auth: AuthContext = Depends(verify_api_key),
+):
+    result = await registry.call("update_app_page", store=store,
+                                 app_name=body.app, page_name=body.page, jsx_code=body.jsx_code)
+    if isinstance(result, ToolError):
+        raise HTTPException(status_code=400, detail=result.model_dump())
+    return result
+
+
+@app.post("/api/tools/list_app_pages")
+async def list_app_pages_route(
+    body: ListAppPagesRequest,
+    store: ArtifactStore = Depends(get_store),
+    registry: ToolRegistry = Depends(get_registry),
+    auth: AuthContext = Depends(verify_api_key),
+) -> list[AppPageMeta]:
+    result = await registry.call("list_app_pages", store=store, app_name=body.app)
+    if isinstance(result, ToolError):
+        raise HTTPException(status_code=400, detail=result.model_dump())
+    return result
 
 
 # ---------------------------------------------------------------------------

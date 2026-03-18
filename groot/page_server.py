@@ -73,4 +73,23 @@ class PageServer:
             except KeyError:
                 raise HTTPException(status_code=404, detail=f"Page not found: {name!r}")
 
+        # Layout route registered FIRST — more specific, must win over {page_name} wildcard
+        @router.get("/api/app-pages/{app_name}/layout/source", response_class=PlainTextResponse)
+        async def app_layout_source(app_name: str):
+            """Return layout JSX for an app. Returns 204 No Content if no layout is set."""
+            from fastapi.responses import Response
+            layout = await store.get_app_layout(app_name)
+            if not layout:
+                return Response(status_code=204)
+            return PlainTextResponse(layout, media_type="text/plain")
+
+        @router.get("/api/app-pages/{app_name}/{page_name}/source", response_class=PlainTextResponse)
+        async def app_page_source(app_name: str, page_name: str):
+            """Return raw JSX for an app page (no auth — browser fetches this at runtime)."""
+            try:
+                jsx = await store.get_app_page_source(app_name, page_name)
+            except KeyError:
+                raise HTTPException(status_code=404, detail=f"App page not found: {app_name}/{page_name}")
+            return PlainTextResponse(jsx, media_type="text/plain")
+
         return router

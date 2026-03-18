@@ -6,6 +6,9 @@ from datetime import datetime, timezone
 import aiosqlite
 
 from groot.models import (
+    AppPageMeta,
+    AppPageResult,
+    AppResult,
     ArtifactSummary,
     BlobData,
     BlobMeta,
@@ -25,11 +28,28 @@ def _now() -> str:
 
 
 def _page_url(name: str) -> str:
-    """Return the full URL for a page, e.g. http://localhost:8000/apps/hello."""
+    """Return the full URL for a standalone page, e.g. http://localhost:8000/apps/hello."""
     from groot.config import get_settings
     s = get_settings()
     host = s.GROOT_HOST if s.GROOT_HOST != "0.0.0.0" else "localhost"
     return f"http://{host}:{s.GROOT_PORT}/apps/{name}"
+
+
+def _app_base_url(app_name: str) -> str:
+    """Return the base URL for an app, e.g. http://localhost:8000/apps/dashboard/."""
+    from groot.config import get_settings
+    s = get_settings()
+    host = s.GROOT_HOST if s.GROOT_HOST != "0.0.0.0" else "localhost"
+    return f"http://{host}:{s.GROOT_PORT}/apps/{app_name}/"
+
+
+def _app_page_url(app_name: str, page_name: str) -> str:
+    """Return the full URL for an app page. 'index' maps to the app root."""
+    from groot.config import get_settings
+    s = get_settings()
+    host = s.GROOT_HOST if s.GROOT_HOST != "0.0.0.0" else "localhost"
+    base = f"http://{host}:{s.GROOT_PORT}/apps/{app_name}"
+    return f"{base}/" if page_name == "index" else f"{base}/{page_name}"
 
 
 class ArtifactStore:
@@ -75,6 +95,27 @@ class ArtifactStore:
                     level        TEXT NOT NULL DEFAULT 'info',
                     message      TEXT NOT NULL,
                     context_json TEXT NOT NULL DEFAULT '{}'
+                )
+            """)
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS apps (
+                    name        TEXT PRIMARY KEY,
+                    description TEXT NOT NULL DEFAULT '',
+                    layout_jsx  TEXT NOT NULL DEFAULT '',
+                    created_at  TEXT NOT NULL,
+                    updated_at  TEXT NOT NULL
+                )
+            """)
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS app_pages (
+                    app_name    TEXT NOT NULL,
+                    page_name   TEXT NOT NULL,
+                    jsx_code    TEXT NOT NULL,
+                    description TEXT NOT NULL DEFAULT '',
+                    created_at  TEXT NOT NULL,
+                    updated_at  TEXT NOT NULL,
+                    PRIMARY KEY (app_name, page_name),
+                    FOREIGN KEY (app_name) REFERENCES apps(name) ON DELETE CASCADE
                 )
             """)
             await db.commit()
@@ -340,3 +381,97 @@ class ArtifactStore:
         recent_events = await self.list_events(limit=20)
 
         return ArtifactSummary(pages=pages, blobs=blobs, schemas=schemas, recent_events=recent_events)
+
+    # ------------------------------------------------------------------
+    # Multi-page app operations
+    # ------------------------------------------------------------------
+
+    async def create_app(self, name: str, description: str = "", layout_jsx: str = "") -> AppResult:
+        """Create a new app namespace. Raises ValueError if name already exists."""
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute("SELECT 1 FROM apps WHERE name = ?", (name,)) as cur:
+                if await cur.fetchone():
+                    raise ValueError(f"App already exists: {name!r}")
+            now = _now()
+            await db.execute(
+                "INSERT INTO apps (name, description, layout_jsx, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+                (name, description, layout_jsx, now, now),
+            )
+            await db.commit()
+        return AppResult(name=name, description=description, base_url=_app_base_url(name), created_at=now, updated_at=now)
+
+    async def get_app_layout(self, app_name: str) -> str:
+        """Return layout_jsx for an app, or empty string if app has no layout."""
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute("SELECT layout_jsx FROM apps WHERE name = ?", (app_name,)) as cur:
+                row = await cur.fetchone()
+        return row[0] if row else ""
+
+    async def create_app_page(self, app_name: str, page_name: str, jsx_code: str, description: str = "") -> AppPageResult:
+        """Add a page to an app. Raises KeyError if app missing, ValueError if page exists."""
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute("SELECT 1 FROM apps WHERE name = ?", (app_name,)) as cur:
+                if not await cur.fetchone():
+                    raise KeyError(f"App not found: {app_name!r}")
+            async with db.execute(
+                "SELECT 1 FROM app_pages WHERE app_name = ? AND page_name = ?", (app_name, page_name)
+            ) as cur:
+                if await cur.fetchone():
+                    raise ValueError(f"App page already exists: {app_name!r}/{page_name!r}")
+            now = _now()
+            await db.execute(
+                "INSERT INTO app_pages (app_name, page_name, jsx_code, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (app_name, page_name, jsx_code, description, now, now),
+            )
+            await db.commit()
+        return AppPageResult(app=app_name, page=page_name, url=_app_page_url(app_name, page_name),
+                             description=description, created_at=now, updated_at=now)
+
+    async def update_app_page(self, app_name: str, page_name: str, jsx_code: str) -> AppPageResult:
+        """Replace JSX for an existing app page. Raises KeyError if app or page not found."""
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute(
+                "SELECT description, created_at FROM app_pages WHERE app_name = ? AND page_name = ?",
+                (app_name, page_name)
+            ) as cur:
+                row = await cur.fetchone()
+            if row is None:
+                raise KeyError(f"App page not found: {app_name!r}/{page_name!r}")
+            description, created_at = row[0], row[1]
+            now = _now()
+            await db.execute(
+                "UPDATE app_pages SET jsx_code = ?, updated_at = ? WHERE app_name = ? AND page_name = ?",
+                (jsx_code, now, app_name, page_name),
+            )
+            await db.commit()
+        return AppPageResult(app=app_name, page=page_name, url=_app_page_url(app_name, page_name),
+                             description=description, created_at=created_at, updated_at=now)
+
+    async def get_app_page_source(self, app_name: str, page_name: str) -> str:
+        """Return raw JSX for an app page. Raises KeyError if not found."""
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute(
+                "SELECT jsx_code FROM app_pages WHERE app_name = ? AND page_name = ?", (app_name, page_name)
+            ) as cur:
+                row = await cur.fetchone()
+        if row is None:
+            raise KeyError(f"App page not found: {app_name!r}/{page_name!r}")
+        return row[0]
+
+    async def list_app_pages(self, app_name: str) -> list[AppPageMeta]:
+        """List all pages under an app. Raises KeyError if app not found."""
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute("SELECT 1 FROM apps WHERE name = ?", (app_name,)) as cur:
+                if not await cur.fetchone():
+                    raise KeyError(f"App not found: {app_name!r}")
+            async with db.execute(
+                "SELECT app_name, page_name, description, created_at, updated_at FROM app_pages "
+                "WHERE app_name = ? ORDER BY page_name ASC",
+                (app_name,),
+            ) as cur:
+                rows = await cur.fetchall()
+        return [
+            AppPageMeta(app=r[0], page=r[1], url=_app_page_url(r[0], r[1]),
+                        description=r[2], created_at=r[3], updated_at=r[4])
+            for r in rows
+        ]

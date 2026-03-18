@@ -10,6 +10,9 @@ from pydantic import BaseModel
 
 from groot.artifact_store import ArtifactStore
 from groot.models import (
+    AppPageMeta,
+    AppPageResult,
+    AppResult,
     ArtifactSummary,
     BlobData,
     BlobMeta,
@@ -243,16 +246,50 @@ async def get_groot_config(store: ArtifactStore) -> GrootConfig:
 
 
 # ---------------------------------------------------------------------------
+# Multi-page app tools
+# ---------------------------------------------------------------------------
+
+async def create_app(store: ArtifactStore, name: str, description: str = "", layout_jsx: str = "") -> AppResult:
+    """Register a new multi-page app namespace. Returns base_url for the app root.
+
+    Use create_app_page to add pages. Navigate between pages with plain <a href> links.
+    layout_jsx is optional JSX for a shared wrapper rendered around every page in the app.
+    """
+    return await store.create_app(name, description, layout_jsx)
+
+
+async def create_app_page(store: ArtifactStore, app_name: str, page_name: str, jsx_code: str, description: str = "") -> AppPageResult:
+    """Add a React JSX page to an existing app namespace.
+
+    page_name='index' is served at /apps/{app}/ (the app root).
+    Any other page_name is served at /apps/{app}/{page_name}.
+    Navigation between pages uses plain anchor tags: <a href="/apps/myapp/clock">Clock</a>
+    """
+    return await store.create_app_page(app_name, page_name, jsx_code, description)
+
+
+async def update_app_page(store: ArtifactStore, app_name: str, page_name: str, jsx_code: str) -> AppPageResult:
+    """Hot-swap the JSX for an existing app page without restarting the server."""
+    return await store.update_app_page(app_name, page_name, jsx_code)
+
+
+async def list_app_pages(store: ArtifactStore, app_name: str) -> list[AppPageMeta]:
+    """List all pages registered under an app namespace."""
+    return await store.list_app_pages(app_name)
+
+
+# ---------------------------------------------------------------------------
 # Registration
 # ---------------------------------------------------------------------------
 
 def register_core_tools(registry: ToolRegistry, store: ArtifactStore) -> None:
-    """Register all 15 core tools with the registry."""
+    """Register all 19 core tools with the registry."""
     for fn in [
         write_blob, read_blob, list_blobs, delete_blob,
         create_page, update_page, list_pages, delete_page,
         define_schema, get_schema, list_schemas,
         log_event, get_system_state, list_artifacts,
         get_groot_config,
+        create_app, create_app_page, update_app_page, list_app_pages,
     ]:
         registry.register(fn, namespace="core")

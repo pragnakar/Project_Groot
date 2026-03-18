@@ -238,3 +238,63 @@ class GrootConfig(BaseModel):
     base_url: str
     dashboard_url: str
     note: str = "Use api_key as the X-Groot-Key header for authenticated HTTP requests."
+
+
+# ---------------------------------------------------------------------------
+# Multi-page app models
+# ---------------------------------------------------------------------------
+
+class AppResult(BaseModel):
+    """Response for create_app."""
+    name: str
+    description: str = ""
+    base_url: str        # e.g. http://localhost:8000/apps/dashboard/
+    created_at: str      # ISO 8601 UTC
+    updated_at: str      # ISO 8601 UTC
+
+
+class AppPageResult(BaseModel):
+    """Response for create_app_page / update_app_page."""
+    app: str
+    page: str
+    url: str             # e.g. http://localhost:8000/apps/dashboard/clock
+    description: str = ""
+    created_at: str      # ISO 8601 UTC
+    updated_at: str      # ISO 8601 UTC
+
+
+class AppPageMeta(BaseModel):
+    """Single entry in list_app_pages response."""
+    app: str
+    page: str
+    url: str
+    description: str = ""
+    created_at: str      # ISO 8601 UTC
+    updated_at: str      # ISO 8601 UTC
+
+
+# ---------------------------------------------------------------------------
+# Request models for app-page HTTP routes
+# ---------------------------------------------------------------------------
+
+class CreateAppRequest(BaseModel):
+    name: str
+    description: str = ""
+    layout_jsx: str = ""
+
+
+class CreateAppPageRequest(BaseModel):
+    app: str
+    page: str
+    jsx_code: str
+    description: str = ""
+
+
+class UpdateAppPageRequest(BaseModel):
+    app: str
+    page: str
+    jsx_code: str
+
+
+class ListAppPagesRequest(BaseModel):
+    app: str

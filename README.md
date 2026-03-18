@@ -2,7 +2,7 @@
 
 Domain-agnostic LLM runtime environment.
 
-Groot gives any MCP-compatible LLM agent a persistent execution layer: a SQLite artifact store, a validated tool interface (15 core tools), a React page server, and a pluggable domain module system. The LLM is always external — Groot never embeds a model.
+Groot gives any MCP-compatible LLM agent a persistent execution layer: a SQLite artifact store, a validated tool interface (19 core tools), a React page server with multi-page app support, and a pluggable domain module system. The LLM is always external — Groot never embeds a model.
 
 ---
 
@@ -47,8 +47,11 @@ All tool routes require authentication via `X-Groot-Key` header or `?key=` query
 | `/health` | GET | No | Health check |
 | `/` | GET | No | React shell (groot-dashboard) |
 | `/artifacts` | GET | No | React shell (groot-artifacts) |
-| `/apps/{name}` | GET | No | React shell (named page) |
-| `/api/pages` | GET | No | List all registered pages |
+| `/apps/{name}` | GET | No | React shell (standalone page) |
+| `/apps/{app}/` | GET | No | React shell (multi-page app root / index) |
+| `/apps/{app}/{page}` | GET | No | React shell (multi-page app sub-page) |
+| `/api/config` | GET | No | Runtime connection info (api_key, base_url) |
+| `/api/pages` | GET | No | List all registered standalone pages |
 | `/api/pages/{name}/source` | GET | No | Raw JSX source for a page |
 | `/api/pages/{name}/meta` | GET | No | Page metadata |
 | `/api/tools/write_blob` | POST | Yes | Write a blob to the artifact store |
@@ -72,6 +75,12 @@ All tool routes require authentication via `X-Groot-Key` header or `?key=` query
 | `/api/apps/{name}` | DELETE | Yes | Unregister app, remove pages/tools; `?purge_data=true` deletes blobs+schemas; `?force=true` required for loaded apps + removes directory |
 | `/api/apps/import` | POST | Yes | Upload `.zip` to install + hot-load an app module |
 | `/api/apps/{name}/export` | GET | No | Download app as `.zip`; `?include_data=true` bundles pages + blobs |
+| `/api/tools/create_app` | POST | Yes | Register a multi-page app namespace |
+| `/api/tools/create_app_page` | POST | Yes | Add a page to an app; `page=index` → app root |
+| `/api/tools/update_app_page` | POST | Yes | Hot-swap JSX for an existing app page |
+| `/api/tools/list_app_pages` | POST | Yes | List all pages under an app |
+| `/api/app-pages/{app}/layout/source` | GET | No | App layout JSX (204 if none set) |
+| `/api/app-pages/{app}/{page}/source` | GET | No | App page JSX (browser fetches at runtime) |
 | `/mcp/sse` | GET | `?key=` | MCP SSE transport |
 | `/mcp/messages` | POST | — | MCP SSE message relay |
 
@@ -155,7 +164,7 @@ groot/
   models.py          — Pydantic request/response models
   artifact_store.py  — Async SQLite CRUD (blobs, pages, schemas, events)
   auth.py            — API key middleware (FastAPI Depends)
-  tools.py           — ToolRegistry + 15 core tools
+  tools.py           — ToolRegistry + 19 core tools
   server.py          — FastAPI app, lifespan, all HTTP routes
   mcp_transport.py   — MCPBridge, stdio transport, SSE transport
   page_server.py     — PageServer: JSX delivery routes + static registration
@@ -203,6 +212,7 @@ tests/
 | Export App | `GET /api/apps/{name}/export` — ZIP download with optional data bundle | **Complete** | 197 total |
 | Import App | `POST /api/apps/import` — ZIP upload, validate, extract, hot-load | **Complete** | 211 total |
 | Dashboard v0.3.0 | Full UI overhaul — custom dropdowns, API key validation, search, toasts, source viewer modal, compact view, nav links, clickable stats, uptime format | **Complete** | 211 total |
+| Multi-page Apps | `create_app` / `create_app_page` / `update_app_page` / `list_app_pages` — real URL routing, optional shared layout, SPA navigation via plain `<a href>` | **Complete** | 243 total |
 | ~~G4~~ | ~~Sage app module~~ | **Deferred** | — |
 
 > **G4 note:** Sage is a domain-specific optimization engine with its own lifecycle. It was deferred to [Project Sage](https://github.com/pragnakar/Project_Sage) and will integrate with Groot as an external app module via the `register()` protocol. This keeps Groot clean, forkable, and domain-agnostic.

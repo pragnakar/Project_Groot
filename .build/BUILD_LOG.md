@@ -270,3 +270,68 @@ Notable:
   - sessionStorage persists API key across page refreshes
   - Source modal closes on click-outside (e.target === e.currentTarget check)
   - Tab deep-link: /#/artifacts?tab=blobs navigates directly to blobs tab on artifact browser mount
+
+---
+
+2026-03-18 | v0.3.0 post-release fixes + multi-page app feature — complete
+---
+Context: v0.3.0 shipped. Series of bug fixes and new features added in same session.
+
+Fixes:
+  groot/__main__.py:
+    - --mcp-stdio --http: all uvicorn log handlers redirected to stderr to prevent
+      INFO: lines from polluting the MCP stdio JSON stream (SyntaxError in Claude Desktop)
+    - _generate_api_key(): respects pre-set GROOT_API_KEYS env var instead of always overwriting
+  groot/server.py:
+    - GET /api/config (no auth): returns api_key, base_url, dashboard_url for browser discovery
+  groot/builtin_pages.py:
+    - Dashboard always fetches /api/config on load and overwrites sessionStorage — fixes stale
+      key causing "Delete failed: invalid api key" after restart
+  groot/artifact_store.py:
+    - _page_url(): returns full absolute URL (http://localhost:8000/apps/name) so Claude
+      no longer uses <groot-port> placeholders in responses
+  claude_desktop_config.json:
+    - Changed args from [--mcp-stdio] to [--mcp-stdio, --http]
+    - Added GROOT_API_KEYS, GROOT_HOST, GROOT_PORT to env for stable configuration
+  groot/tools.py:
+    - get_groot_config(): 15th core tool — returns api_key, host, port, base_url, dashboard_url
+      so Claude can discover connection details via MCP without manual copy-paste
+
+Multi-page App Feature:
+  groot/models.py:
+    - AppResult, AppPageResult, AppPageMeta response models
+    - CreateAppRequest, CreateAppPageRequest, UpdateAppPageRequest, ListAppPagesRequest
+  groot/artifact_store.py:
+    - New DB tables: apps, app_pages (composite PK, ON DELETE CASCADE)
+    - Helpers: _app_base_url(), _app_page_url() (index → trailing slash)
+    - Methods: create_app, get_app_layout, create_app_page, update_app_page,
+      get_app_page_source, list_app_pages
+  groot/tools.py:
+    - create_app, create_app_page, update_app_page, list_app_pages (tools 16-19)
+  groot/page_server.py:
+    - GET /api/app-pages/{app}/layout/source (204 if no layout; registered before wildcard)
+    - GET /api/app-pages/{app}/{page}/source (no auth — browser fetches JSX at runtime)
+  groot/server.py:
+    - POST /api/tools/create_app, create_app_page, update_app_page, list_app_pages (auth required)
+    - New paths added to _dynamic_paths
+  groot-shell/index.html:
+    - Hash router replaced with path-based router (usePathname, navigate, popstate)
+    - parseRoute() distinguishes: /apps/{name} → standalone, /apps/{name}/ → app index,
+      /apps/{name}/{page} → app sub-page
+    - DynamicAppPage: fetches layout + page in parallel, renders <Layout><Page/></Layout>
+    - _transformJsx() extracted as shared helper used by both DynamicPage and DynamicAppPage
+    - NavLink component intercepts same-origin clicks for SPA navigation (no full reload)
+  Tests:
+    - tests/test_app_store.py: 14 store-level tests
+    - tests/test_app_tools.py: 4 tool-level tests
+    - tests/test_app_page_routes.py: 13 HTTP integration tests
+
+Result:
+  Branch: main @ SHA c8a86e8
+  Full suite: 243/243 passed — zero failures, zero warnings
+  Groot package reinstalled at v0.3.0
+Notable:
+  - /apps/{name} (no trailing slash) = standalone page; /apps/{name}/ = multi-page app root
+  - Layout JSX receives children prop: function Layout({children}){return <div>{children}</div>;}
+  - Navigation inside app pages uses plain <a href="/apps/myapp/clock"> — no hash tricks
+  - 19 core tools total (was 15)

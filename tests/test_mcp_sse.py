@@ -82,4 +82,4 @@ async def test_mcp_bridge_tools_available_after_sse_mount(client, test_settings)
         register_core_tools(registry, store)
         bridge = MCPBridge(registry, store)
         tools = await bridge.list_tools()
-        assert len(tools) == 14
+        assert len(tools) == 15

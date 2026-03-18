@@ -2,7 +2,7 @@
 
 Domain-agnostic LLM runtime environment.
 
-Groot gives any MCP-compatible LLM agent a persistent execution layer: a SQLite artifact store, a validated tool interface (14 core tools), a React page server, and a pluggable domain module system. The LLM is always external — Groot never embeds a model.
+Groot gives any MCP-compatible LLM agent a persistent execution layer: a SQLite artifact store, a validated tool interface (15 core tools), a React page server, and a pluggable domain module system. The LLM is always external — Groot never embeds a model.
 
 ---
 
@@ -155,7 +155,7 @@ groot/
   models.py          — Pydantic request/response models
   artifact_store.py  — Async SQLite CRUD (blobs, pages, schemas, events)
   auth.py            — API key middleware (FastAPI Depends)
-  tools.py           — ToolRegistry + 14 core tools
+  tools.py           — ToolRegistry + 15 core tools
   server.py          — FastAPI app, lifespan, all HTTP routes
   mcp_transport.py   — MCPBridge, stdio transport, SSE transport
   page_server.py     — PageServer: JSX delivery routes + static registration

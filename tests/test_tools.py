@@ -38,13 +38,13 @@ async def registry_and_store():
 async def test_list_tools_returns_all_14(registry_and_store):
     registry, _ = registry_and_store
     tools = registry.list_tools()
-    assert len(tools) == 14  # spec §4: 4 storage + 4 page + 3 schema + 3 system
+    assert len(tools) == 15  # spec §4: 4 storage + 4 page + 3 schema + 3 system + 1 config
 
 
 async def test_list_tools_namespace_filter(registry_and_store):
     registry, _ = registry_and_store
     core_tools = registry.list_tools(namespace="core")
-    assert len(core_tools) == 14
+    assert len(core_tools) == 15
     assert all(t.namespace == "core" for t in core_tools)
 
 

@@ -44,7 +44,7 @@ def test_list_apps_no_apps(client):
     assert "apps" in body
     assert "core" in body
     assert body["apps"] == []
-    assert body["core"]["tools_count"] == 14
+    assert body["core"]["tools_count"] == 15
     assert body["core"]["version"] == "0.3.0"
 
 
@@ -126,7 +126,7 @@ def test_example_tool_not_in_core_namespace(example_client, auth_headers):
     resp = example_client.get("/api/apps")
     core_tools_count = resp.json()["core"]["tools_count"]
     # Core tools should still be 14 — _example tool is in its own namespace
-    assert core_tools_count == 14
+    assert core_tools_count == 15
 
 
 def test_example_tool_callable(example_client, auth_headers):

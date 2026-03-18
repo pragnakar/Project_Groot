@@ -31,7 +31,7 @@ async def bridge():
 
 async def test_list_tools_count(bridge):
     tools = await bridge.list_tools()
-    assert len(tools) == 14  # spec §4: 4 storage + 4 page + 3 schema + 3 system
+    assert len(tools) == 15  # spec §4: 4 storage + 4 page + 3 schema + 3 system + 1 config
 
 
 async def test_list_tools_are_mcp_tool_objects(bridge):

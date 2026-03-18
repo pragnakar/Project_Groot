@@ -228,3 +228,13 @@ class AppImportResult(BaseModel):
     tools_registered: int
     pages_registered: int
     message: str = ""
+
+
+class GrootConfig(BaseModel):
+    """Runtime connection info returned by get_groot_config."""
+    api_key: str
+    host: str
+    port: int
+    base_url: str
+    dashboard_url: str
+    note: str = "Use api_key as the X-Groot-Key header for authenticated HTTP requests."

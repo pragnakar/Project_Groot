@@ -14,6 +14,7 @@ from groot.models import (
     BlobData,
     BlobMeta,
     BlobResult,
+    GrootConfig,
     LogResult,
     PageMeta,
     PageResult,
@@ -218,16 +219,40 @@ async def list_artifacts(store: ArtifactStore) -> ArtifactSummary:
     return await store.list_artifacts()
 
 
+async def get_groot_config(store: ArtifactStore) -> GrootConfig:
+    """Return Groot's runtime connection info: API key, host, port, and URLs.
+
+    Use this to discover the API key and base URL needed for direct HTTP calls.
+    The api_key value goes in the X-Groot-Key header for authenticated endpoints.
+    """
+    import os
+    from groot.config import get_settings
+    settings = get_settings()
+    host = settings.GROOT_HOST if settings.GROOT_HOST != "0.0.0.0" else "localhost"
+    port = settings.GROOT_PORT
+    base_url = f"http://{host}:{port}"
+    keys = os.environ.get("GROOT_API_KEYS", "").strip()
+    api_key = keys.split(",")[0].strip() if keys else "groot_sk_dev_key_01"
+    return GrootConfig(
+        api_key=api_key,
+        host=host,
+        port=port,
+        base_url=base_url,
+        dashboard_url=f"{base_url}/",
+    )
+
+
 # ---------------------------------------------------------------------------
 # Registration
 # ---------------------------------------------------------------------------
 
 def register_core_tools(registry: ToolRegistry, store: ArtifactStore) -> None:
-    """Register all 12 core tools with the registry."""
+    """Register all 15 core tools with the registry."""
     for fn in [
         write_blob, read_blob, list_blobs, delete_blob,
         create_page, update_page, list_pages, delete_page,
         define_schema, get_schema, list_schemas,
         log_event, get_system_state, list_artifacts,
+        get_groot_config,
     ]:
         registry.register(fn, namespace="core")

@@ -127,6 +127,7 @@ async def lifespan(app: FastAPI):
     # Mount page server routes + app discovery routes (idempotent)
     _dynamic_paths = {
         "/api/pages", "/api/pages/{name}/source", "/api/pages/{name}/meta",
+        "/api/pages/{name}/export",
         "/api/apps", "/api/apps/{name}", "/api/apps/{name}/health",
         "/api/apps/import",
         "/api/app-pages/{app_name}/{page_name}/source",

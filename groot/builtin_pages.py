@@ -19,6 +19,16 @@ function fmtUptime(s) {
   return Math.floor(s / 3600) + 'h ' + Math.floor((s % 3600) / 60) + 'm';
 }
 
+function fmtRelative(iso) {
+  if (!iso) return '';
+  const diff = Date.now() - new Date(iso).getTime();
+  const s = Math.floor(diff / 1000);
+  if (s < 60)    return s + 's ago';
+  if (s < 3600)  return Math.floor(s / 60) + 'm ago';
+  if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+  return Math.floor(s / 86400) + 'd ago';
+}
+
 function Dropdown({ items }) {
   const [open, setOpen] = React.useState(false);
   const [hovered, setHovered] = React.useState(null);
@@ -85,6 +95,8 @@ function Page() {
   const [dbApps, setDbApps]             = React.useState([]);
   const [importBundleFile, setImportBundleFile] = React.useState(null);
   const [importingBundle, setImportingBundle]   = React.useState(false);
+  const [showKey, setShowKey]                   = React.useState(false);
+  const [sysExpanded, setSysExpanded]           = React.useState(false);
   const [deleteStatus, setDeleteStatus]         = React.useState({});
   const [confirmDelete, setConfirmDelete]       = React.useState(null);
   const [pageDeleteStatus, setPageDeleteStatus] = React.useState({});
@@ -96,6 +108,21 @@ function Page() {
   const showToast = (msg, ok) => {
     setToast({ msg, ok });
     setTimeout(() => setToast(null), 4000);
+  };
+
+  const triggerDownload = (url, filename) => {
+    fetch(url, {headers: apiKey ? {'X-Groot-Key': apiKey} : {}})
+      .then(r => { if (!r.ok) throw new Error('Export failed: ' + r.status); return r.blob(); })
+      .then(blob => {
+        const sizeKb = (blob.size / 1024).toFixed(1);
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(a.href);
+        showToast('\u2713 Downloaded ' + filename + ' (' + sizeKb + ' KB)', true);
+      })
+      .catch(err => showToast('Export failed: ' + err.message, false));
   };
 
   const saveKey = k => {
@@ -291,6 +318,13 @@ function Page() {
 
   const isSystemPage  = name => name.startsWith('groot-');
   const isExamplePage = name => name.startsWith('_');
+  const appNameSet    = new Set(apps.map(a => a.name));
+  const ownerApp      = name => {
+    const idx = name.indexOf('-');
+    if (idx < 0) return null;
+    const prefix = name.slice(0, idx);
+    return appNameSet.has(prefix) ? prefix : null;
+  };
 
   const filteredPages = pages.filter(p => {
     if (!pageSearch) return true;
@@ -392,13 +426,19 @@ function Page() {
 
       <div style={s.card}>
         <div style={s.h2}>App Manager</div>
+        <div style={{color:'#8b949e', fontSize:'.75rem', marginBottom:'.75rem'}}>Format: .zip \u00b7 App module with tools + pages</div>
 
         <div style={{display:'flex', gap:'.5rem', alignItems:'center', flexWrap:'wrap', marginBottom:'.5rem', paddingBottom:'1rem', borderBottom:'1px solid #21262d'}}>
           <input type="file" accept=".zip" onChange={e => setImportFile(e.target.files[0])}
             style={{color:'#8b949e', fontSize:'.85rem', flex:1, minWidth:180}} />
-          <div style={{display:'flex', alignItems:'center'}}>
-            <input style={{...s.input, width:200}} type="password" placeholder="API key"
-              value={apiKey} onChange={e => saveKey(e.target.value)} />
+          <div style={{display:'flex', alignItems:'center', gap:'.35rem'}}>
+            <span style={{color:'#8b949e', fontSize:'.8rem', whiteSpace:'nowrap'}}>API Key</span>
+            <input style={{...s.input, width:170}} type={showKey ? 'text' : 'password'} placeholder="Enter Groot API key"
+              value={apiKey} onChange={e => saveKey(e.target.value)}
+              title="Required for import/export. Find in your Groot config or terminal output." />
+            <button style={{...s.btn, marginLeft:0, padding:'.25rem .45rem'}} onClick={() => setShowKey(v => !v)}>
+              {showKey ? 'Hide' : 'Show'}
+            </button>
             {keyDot()}
           </div>
           <button style={{...s.btnGreen, display:'flex', alignItems:'center'}} onClick={doImport} disabled={!importFile || importing}>
@@ -417,8 +457,8 @@ function Page() {
           : apps.map(a => (
               <div key={a.name} style={{...s.row, gap:'.75rem'}}>
                 <Dropdown items={[
-                  { label: 'Export ZIP',    onClick: () => { window.location.href = '/api/apps/' + a.name + '/export'; } },
-                  { label: 'Export + Data', onClick: () => { window.location.href = '/api/apps/' + a.name + '/export?include_data=true'; } },
+                  { label: 'Export ZIP',    onClick: () => triggerDownload('/api/apps/' + a.name + '/export', a.name + '.zip') },
+                  { label: 'Export + Data', onClick: () => triggerDownload('/api/apps/' + a.name + '/export?include_data=true', a.name + '-data.zip') },
                   { label: 'Delete\u2026',  onClick: () => setConfirmDelete(a.name), danger: true },
                 ]} />
                 <div style={{display:'flex', alignItems:'center', flex:1, minWidth:0}}>
@@ -436,6 +476,7 @@ function Page() {
 
       <div style={s.card}>
         <div style={s.h2}>Multi-Page Apps</div>
+        <div style={{color:'#8b949e', fontSize:'.75rem', marginBottom:'.75rem'}}>Format: .json \u00b7 DB-registered multi-page apps (pages only, no Python tools)</div>
 
         <div style={{display:'flex', gap:'.5rem', alignItems:'center', flexWrap:'wrap', marginBottom:'.5rem', paddingBottom:'1rem', borderBottom:'1px solid #21262d'}}>
           <input type="file" accept=".json" onChange={e => setImportBundleFile(e.target.files[0])}
@@ -447,7 +488,7 @@ function Page() {
         </div>
 
         {dbApps.length === 0
-          ? <div style={{color:'#8b949e', fontSize:'.9rem'}}>No multi-page apps registered. Use create_app to build one.</div>
+          ? <div style={{color:'#8b949e', fontSize:'.9rem'}}>No multi-page apps registered. Use <code style={{background:'#0d1117', padding:'.1rem .3rem', borderRadius:3, fontSize:'.8rem'}}>create_app</code> to build one, or import a .json bundle above.</div>
           : dbApps.map(a => (
               <div key={a.name} style={{...s.row, gap:'.75rem'}}>
                 <div style={{display:'flex', alignItems:'center', flex:1, minWidth:0, gap:'.5rem'}}>
@@ -457,7 +498,7 @@ function Page() {
                   {a.description && <span style={{color:'#8b949e', fontSize:'.78rem', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>\u00b7 {a.description}</span>}
                 </div>
                 <button style={{...s.btn, color:'#4ade80', borderColor:'#4ade80'}}
-                  onClick={() => { window.location.href = '/api/app-bundles/' + encodeURIComponent(a.name); }}>
+                  onClick={() => triggerDownload('/api/app-bundles/' + encodeURIComponent(a.name), a.name + '-bundle.json')}>
                   Export Bundle
                 </button>
               </div>
@@ -475,37 +516,77 @@ function Page() {
             onChange={e => setPageSearch(e.target.value)}
           />
         </div>
-        {filteredPages.length === 0
-          ? <div style={{color:'#8b949e', fontSize:'.9rem'}}>{pageSearch ? "No pages match '" + pageSearch + "'" : 'No pages registered yet.'}</div>
-          : filteredPages.map(p => {
-              const isSys = isSystemPage(p.name);
-              const isEx  = isExamplePage(p.name);
-              const dropItems = [
-                { label: 'Open',        onClick: () => { window.open('/apps/' + p.name, '_blank'); } },
-                { label: 'View Source', onClick: () => openSource(p.name) },
-              ];
-              if (!isSys) dropItems.push({ label: 'Delete\u2026', onClick: () => setConfirmDeletePage(p.name), danger: true });
-              return (
+
+        {/* System pages — collapsed by default (UX-3) */}
+        {(() => {
+          const sysPgs = filteredPages.filter(p => isSystemPage(p.name));
+          return sysPgs.length > 0 && (
+            <div style={{marginBottom:'.75rem'}}>
+              <button style={{...s.btn, marginLeft:0, fontSize:'.78rem'}} onClick={() => setSysExpanded(v => !v)}>
+                {sysExpanded ? '\u25be' : '\u25b8'} System pages ({sysPgs.length})
+              </button>
+              {sysExpanded && sysPgs.map(p => (
                 <div key={p.name} style={{...s.row, gap:'.75rem', flexWrap:'wrap', alignItems:'flex-start', paddingTop:'.5rem', paddingBottom:'.5rem'}}>
-                  <Dropdown items={dropItems} />
+                  <Dropdown items={[
+                    { label: 'Open',        onClick: () => { window.open('/apps/' + p.name, '_blank'); } },
+                    { label: 'View Source', onClick: () => openSource(p.name) },
+                  ]} />
                   <div style={{flex:1, minWidth:0}}>
                     <div style={{display:'flex', alignItems:'center', flexWrap:'wrap', gap:'.2rem'}}>
                       <a href={'/apps/' + p.name} target="_blank" rel="noopener" style={{...s.link, wordBreak:'break-all'}}>{p.name}</a>
-                      {isSys && <span style={s.tagSystem}>system</span>}
-                      {isEx  && <span style={s.tagExample}>example</span>}
+                      <span style={s.tagSystem}>system</span>
                     </div>
+                    <div style={{display:'flex', gap:'.5rem', alignItems:'center', marginTop:'.15rem'}}>
+                      <span style={{color:'#4a5568', fontStyle:'italic', fontSize:'.75rem', flex:1}}>{p.description || 'No description'}</span>
+                      <span style={{color:'#4a5568', fontSize:'.72rem', whiteSpace:'nowrap'}}>{fmtRelative(p.updated_at)}</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          );
+        })()}
+
+        {/* User pages (BUG 6 + UX-1 + UX-4) */}
+        {(() => {
+          const userPgs = filteredPages.filter(p => !isSystemPage(p.name));
+          if (userPgs.length === 0)
+            return <div style={{color:'#8b949e', fontSize:'.9rem'}}>{pageSearch ? "No pages match '" + pageSearch + "'" : 'No pages registered yet.'}</div>;
+          return userPgs.map(p => {
+            const isEx  = isExamplePage(p.name);
+            const owner = ownerApp(p.name);
+            const dropItems = [
+              { label: 'Open',        onClick: () => { window.open('/apps/' + p.name, '_blank'); } },
+              { label: 'View Source', onClick: () => openSource(p.name) },
+            ];
+            if (!owner) {
+              dropItems.push({ label: 'Export ZIP', onClick: () => triggerDownload('/api/pages/' + encodeURIComponent(p.name) + '/export', p.name + '.zip') });
+              dropItems.push({ label: 'Delete\u2026', onClick: () => setConfirmDeletePage(p.name), danger: true });
+            }
+            return (
+              <div key={p.name} style={{...s.row, gap:'.75rem', flexWrap:'wrap', alignItems:'flex-start', paddingTop:'.5rem', paddingBottom:'.5rem'}}>
+                <Dropdown items={dropItems} />
+                <div style={{flex:1, minWidth:0}}>
+                  <div style={{display:'flex', alignItems:'center', flexWrap:'wrap', gap:'.2rem'}}>
+                    <a href={'/apps/' + p.name} target="_blank" rel="noopener" style={{...s.link, wordBreak:'break-all'}}>{p.name}</a>
+                    {isEx && !owner && <span style={s.tagExample}>example</span>}
+                    {owner && <span style={{display:'inline-block', padding:'.05rem .35rem', borderRadius:3, fontSize:'.65rem', fontWeight:600, background:'#0d1a2d', color:'#6366f1', marginLeft:'.4rem', verticalAlign:'middle'}}>Managed by: {owner}</span>}
+                  </div>
+                  <div style={{display:'flex', gap:'.5rem', alignItems:'center', marginTop:'.15rem'}}>
                     <div
                       title={p.description || ''}
-                      style={{color: p.description ? '#8b949e' : '#4a5568', fontStyle: p.description ? 'normal' : 'italic', fontSize:'.75rem', marginTop:'.15rem', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}
+                      style={{color: p.description ? '#8b949e' : '#4a5568', fontStyle: p.description ? 'normal' : 'italic', fontSize:'.75rem', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', flex:1}}
                     >
                       {p.description || 'No description'}
                     </div>
-                    {pageDeleteStatus[p.name] && <div style={{color:'#8b949e', fontSize:'.75rem', marginTop:'.15rem'}}>{pageDeleteStatus[p.name]}</div>}
+                    <span style={{color:'#4a5568', fontSize:'.72rem', whiteSpace:'nowrap'}}>{fmtRelative(p.updated_at)}</span>
                   </div>
+                  {pageDeleteStatus[p.name] && <div style={{color:'#8b949e', fontSize:'.75rem', marginTop:'.15rem'}}>{pageDeleteStatus[p.name]}</div>}
                 </div>
-              );
-            })
-        }
+              </div>
+            );
+          });
+        })()}
       </div>
 
       {events.length > 0 && (

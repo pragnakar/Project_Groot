@@ -1,11 +1,14 @@
 """Groot page server — dynamic route registration and JSX source delivery."""
 
+import io
+import json as _json
 import logging
 import re
+import zipfile
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
-from fastapi.responses import PlainTextResponse
+from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import PlainTextResponse, StreamingResponse
 
 from groot.artifact_store import ArtifactStore
 from groot.models import PageMeta, PageResult
@@ -72,6 +75,26 @@ class PageServer:
                 return await store.get_page(name)
             except KeyError:
                 raise HTTPException(status_code=404, detail=f"Page not found: {name!r}")
+
+        @router.get("/api/pages/{name}/export")
+        async def page_export(name: str):
+            """Export a standalone page as a ZIP containing JSX source + metadata JSON."""
+            try:
+                jsx = await store.get_page_source(name)
+                meta = await store.get_page(name)
+            except KeyError:
+                raise HTTPException(status_code=404, detail=f"Page not found: {name!r}")
+
+            buf = io.BytesIO()
+            with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+                zf.writestr(f"{name}.jsx", jsx)
+                zf.writestr(f"{name}_meta.json", _json.dumps(meta.model_dump(), indent=2))
+            buf.seek(0)
+            return StreamingResponse(
+                buf,
+                media_type="application/zip",
+                headers={"Content-Disposition": f'attachment; filename="{name}.zip"'},
+            )
 
         # Layout route registered FIRST — more specific, must win over {page_name} wildcard
         @router.get("/api/app-pages/{app_name}/layout/source", response_class=PlainTextResponse)

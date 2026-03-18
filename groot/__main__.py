@@ -18,7 +18,10 @@ logger = logging.getLogger(__name__)
 
 
 def _generate_api_key() -> str:
-    """Generate a fresh session API key, inject it into the environment, and return it."""
+    """Return the configured API key, or generate a fresh session key if none is set."""
+    existing = os.environ.get("GROOT_API_KEYS", "").strip()
+    if existing:
+        return existing.split(",")[0]
     key = "groot_sk_" + secrets.token_hex(16)
     os.environ["GROOT_API_KEYS"] = key
     return key

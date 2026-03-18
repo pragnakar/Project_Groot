@@ -1,11 +1,12 @@
-# Project Groot — v0.1 MVP Build Specification
+# Project Groot — Build Specification
+# (living document — updated to reflect actual built state)
 
-**Prepared:** 2026-03-13
+**Original draft:** 2026-03-13
 **Author:** Claude (Cowork instance) — for Claude Code execution
-**Repo:** New repo — `github.com/pragnakar/Project_Groot` (to be created)
+**Repo:** `github.com/pragnakar/Project_Groot`
+**Current version:** v0.3.0 (266 tests, SHA 01c7cd8)
 **First Groot app:** Deferred — sage/ will integrate from its own repo (Project Sage)
 **App module interface:** Generalized — any developer or AI can fork and build their own Groot app
-**Runway constraint:** Ship MVP in ≤5 days of Claude Code sessions
 
 ---
 
@@ -55,9 +56,9 @@ Groot is a **LLM runtime environment**. It gives any MCP-compatible LLM agent a 
 │   ┌────────────▼──┐  ┌───▼────────────┐                 │
 │   │ Artifact Store │  │  Page Server   │                 │
 │   │ SQLite + fs    │  │  React shell   │                 │
-│   │ components     │  │  dynamic routes│                 │
-│   │ pages · blobs  │  │  /apps/:name   │                 │
-│   │ schemas        │  │                │                 │
+│   │ blobs · pages  │  │  dynamic routes│                 │
+│   │ schemas · apps │  │  /apps/:name   │                 │
+│   │ app_pages      │  │  /apps/:name/  │                 │
 │   └───────────────┘  └────────────────┘                 │
 └──────────────────────────┬──────────────────────────────┘
                            │ imports · registers tools
@@ -65,8 +66,8 @@ Groot is a **LLM runtime environment**. It gives any MCP-compatible LLM agent a 
 ┌─────────────────────────────────────────────────────────┐
 │                  GROOT APPS (domain modules)              │
 │                                                          │
-│  sage/            hermes/         athena/                │
-│  (v0.2 — first)   (future)        (future)               │
+│  _example/        sage/           hermes/                │
+│  (ships w/ Groot) (own repo)      (future)               │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -77,47 +78,58 @@ Groot is a **LLM runtime environment**. It gives any MCP-compatible LLM agent a 
 ```
 Project_Groot/
 ├── README.md
-├── GROOT_SPEC.md              ← This document
-├── pyproject.toml             ← groot-runtime package
+├── GROOT_SPEC_V0.1.md         ← This document
+├── pyproject.toml             ← groot-runtime package (v0.3.0)
+├── claude_desktop_config.json ← MCP stdio config for Claude Desktop
 │
 ├── groot/                     ← Core runtime (domain-agnostic)
-│   ├── __init__.py
-│   ├── server.py              ← FastAPI app, startup, lifespan
-│   ├── tools.py               ← Core tool definitions + registry
-│   ├── artifact_store.py      ← SQLite + filesystem persistence
-│   ├── page_server.py         ← React shell + dynamic route serving
-│   ├── auth.py                ← API key middleware
-│   ├── mcp_transport.py       ← MCP stdio + SSE transport
+│   ├── __init__.py            ← version = "0.3.0"
+│   ├── __main__.py            ← Entry point: python -m groot [--mcp-stdio] [--http] [--port]
+│   ├── server.py              ← FastAPI app, startup lifespan, all HTTP routes
+│   ├── tools.py               ← Core tool definitions + registry (19 tools)
+│   ├── artifact_store.py      ← SQLite + filesystem persistence (all CRUD)
+│   ├── page_server.py         ← Page routes: source, meta, export, store endpoints
+│   ├── app_routes.py          ← App module HTTP routes: CRUD, export/import ZIP
+│   ├── app_interface.py       ← GrootAppModule Protocol (documentation-first)
+│   ├── builtin_pages.py       ← groot-dashboard + groot-artifacts JSX (Python strings)
+│   ├── auth.py                ← API key middleware (X-Groot-Key header + ?key= param)
+│   ├── mcp_transport.py       ← MCP stdio + SSE transport (MCPBridge class)
 │   ├── models.py              ← Pydantic schemas for all tool I/O
 │   └── config.py              ← Settings (env vars, .env)
 │
 ├── groot_apps/
-│   └── _example/              ← Example app scaffold (ships with Groot)
+│   └── _example/              ← Reference implementation (ships with Groot)
 │       ├── __init__.py
-│       ├── loader.py          ← Minimal register() — one demo tool + one demo page
+│       ├── loader.py          ← register(): echo_tool + hello.jsx page
 │       └── README.md          ← "Build Your First Groot App" guide
 │
 ├── docs/
 │   └── APP_MODULE_GUIDE.md    ← Developer guide: how to build a Groot app module
 │
-├── groot-shell/               ← React frontend shell
-│   ├── index.html
-│   ├── App.jsx                ← Route shell, loads registered pages
-│   └── components/
-│       └── ArtifactViewer.jsx ← Browse artifact store from UI
+├── groot-shell/
+│   └── index.html             ← Self-contained React shell (Babel CDN, no build step)
+│                              ← Path-based router, DynamicPage + DynamicAppPage
 │
 └── tests/
     ├── test_tools.py
     ├── test_artifact_store.py
     ├── test_page_server.py
-    └── test_auth.py
+    ├── test_auth.py
+    ├── test_app_interface.py
+    ├── test_app_store.py
+    ├── test_app_tools.py
+    ├── test_app_page_routes.py
+    ├── test_delete_app.py
+    ├── test_export_app.py
+    ├── test_import_app.py
+    └── test_server.py
 ```
 
 ---
 
 ## 4. Core Tool Interface
 
-These are Groot's built-in tools — available to any LLM agent, domain-agnostic.
+Groot's built-in tools — available to any LLM agent, domain-agnostic. All return Pydantic models.
 
 ### 4.1 Storage Tools
 
@@ -147,8 +159,11 @@ create_page(name: str, jsx_code: str, description: str = "") -> PageResult
 update_page(name: str, jsx_code: str) -> PageResult
 # Replaces an existing page's JSX. Hot-updates the route.
 
+upsert_page(name: str, jsx_code: str, description: str = "") -> PageResult
+# Create-or-update: creates if absent, updates if present. Used by builtin startup.
+
 list_pages() -> list[PageMeta]
-# Lists all registered pages: [{ name, url, description, created_at, updated_at }]
+# Lists all registered pages: [{ name, url, description, created_at, updated_at, last_opened_at }]
 
 delete_page(name: str) -> bool
 ```
@@ -175,32 +190,56 @@ get_system_state() -> SystemState
 
 list_artifacts() -> ArtifactSummary
 # Returns full inventory: pages, blobs, schemas, recent logs
+
+get_groot_config() -> GrootConfig
+# Returns: { api_key, host, port, base_url, dashboard_url }
+# Tool #15 — lets Claude discover connection details via MCP without manual copy-paste
 ```
+
+### 4.5 Multi-page App Tools
+
+```python
+create_app(name: str, description: str = "") -> AppResult
+# Creates a multi-page app entry (DB-only, no Python module). Served at /apps/{name}/
+
+create_app_page(app: str, page: str, jsx_code: str, description: str = "") -> AppPageResult
+# Adds a page to a multi-page app. Served at /apps/{app}/{page}
+# Use page="index" for the layout/nav component (wraps child pages via {children} prop)
+
+update_app_page(app: str, page: str, jsx_code: str) -> AppPageResult
+# Replaces a page's JSX in a multi-page app.
+
+list_app_pages(app: str) -> list[AppPageMeta]
+# Lists all pages in a multi-page app.
+```
+
+*Total core tools: 19 (tools 1-14 original, 15 = get_groot_config, 16-19 = multi-page app tools)*
 
 ---
 
 ## 5. Artifact Store — Data Model
 
-SQLite database at `groot.db` + `artifacts/` filesystem directory.
+SQLite database at `groot.db`.
 
 ```sql
 -- Blobs: arbitrary data keyed by namespace/name
 CREATE TABLE blobs (
-    key         TEXT PRIMARY KEY,
-    data        BLOB NOT NULL,
+    key          TEXT PRIMARY KEY,
+    data         BLOB NOT NULL,
     content_type TEXT NOT NULL DEFAULT 'text/plain',
-    size_bytes  INTEGER NOT NULL,
-    created_at  TEXT NOT NULL,
-    updated_at  TEXT NOT NULL
+    size_bytes   INTEGER NOT NULL,
+    created_at   TEXT NOT NULL,
+    updated_at   TEXT NOT NULL
 );
 
--- Pages: React components registered as routes
+-- Pages: standalone React components registered as routes at /apps/{name}
 CREATE TABLE pages (
-    name        TEXT PRIMARY KEY,
-    jsx_code    TEXT NOT NULL,
-    description TEXT NOT NULL DEFAULT '',
-    created_at  TEXT NOT NULL,
-    updated_at  TEXT NOT NULL
+    name          TEXT PRIMARY KEY,
+    jsx_code      TEXT NOT NULL,
+    description   TEXT NOT NULL DEFAULT '',
+    created_at    TEXT NOT NULL,
+    updated_at    TEXT NOT NULL,
+    last_opened_at TEXT              -- UTC ISO; touched on every GET /apps/{name}
 );
 
 -- Schemas: named JSON schemas
@@ -212,13 +251,36 @@ CREATE TABLE schemas (
 
 -- Event log: structured history
 CREATE TABLE events (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    timestamp   TEXT NOT NULL,
-    level       TEXT NOT NULL DEFAULT 'info',
-    message     TEXT NOT NULL,
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp    TEXT NOT NULL,
+    level        TEXT NOT NULL DEFAULT 'info',
+    message      TEXT NOT NULL,
     context_json TEXT NOT NULL DEFAULT '{}'
 );
+
+-- Multi-page apps: DB-only app registry (no Python module required)
+CREATE TABLE apps (
+    name          TEXT PRIMARY KEY,
+    description   TEXT NOT NULL DEFAULT '',
+    created_at    TEXT NOT NULL,
+    updated_at    TEXT NOT NULL,
+    last_opened_at TEXT              -- UTC ISO; touched on every GET /apps/{name}/
+);
+
+-- Multi-page app pages: belong to an app, ON DELETE CASCADE
+CREATE TABLE app_pages (
+    app           TEXT NOT NULL,
+    page          TEXT NOT NULL,
+    jsx_code      TEXT NOT NULL,
+    description   TEXT NOT NULL DEFAULT '',
+    created_at    TEXT NOT NULL,
+    updated_at    TEXT NOT NULL,
+    PRIMARY KEY (app, page),
+    FOREIGN KEY (app) REFERENCES apps(name) ON DELETE CASCADE
+);
 ```
+
+**Schema migrations** are idempotent — new columns added via `ALTER TABLE ... ADD COLUMN` wrapped in try/except, so existing databases upgrade automatically on server start.
 
 ---
 
@@ -232,18 +294,39 @@ Groot serves a single React shell application that dynamically loads registered 
 3. Page server exposes `GET /api/pages/my-dashboard/source` → returns the JSX
 4. React shell fetches and renders it at `/apps/my-dashboard`
 
-**Shell routing:**
+**Shell routing (path-based, no hash):**
 ```
-/                    ← Groot dashboard (built-in): lists pages, recent activity
-/apps/:name          ← Renders registered page by name
-/artifacts           ← Artifact browser (built-in): browse blobs, schemas
-/docs                ← FastAPI auto-docs
+/                      ← Groot dashboard (built-in)
+/artifacts             ← Artifact browser (built-in)
+/apps/{name}           ← Standalone page (pages table)
+/apps/{name}/          ← Multi-page app root (apps + app_pages tables)
+/apps/{name}/{page}    ← Multi-page app sub-page
+/docs                  ← FastAPI auto-docs
+/health                ← Health check
 ```
 
-**JSX delivery for MVP:**
-For v0.1, use a simple eval-based approach: the shell fetches raw JSX, transforms it with Babel standalone (CDN), and renders it. This avoids a build step. It is not production-safe but is correct for MVP prototype validation.
+**JSX delivery:**
+The shell fetches raw JSX from `/api/pages/{name}/source` (or `/api/app-pages/{app}/{page}/source`), transforms it with Babel standalone (CDN), and renders it. No build step required.
 
-For v0.2, replace with a proper module federation or Vite-based dynamic import approach.
+Before eval, the shell:
+- Strips `import` / `export` statements (invalid in browser eval context)
+- Captures the exported component name if it differs from `Page`
+- Injects all 9 common React hooks as named variables into the eval scope
+
+**Multi-page app rendering:**
+`DynamicAppPage` fetches the layout JSX (`page=index`) and the current page JSX in parallel. The layout receives `children` prop; the current page renders inside the layout.
+
+**Page server HTTP endpoints (unauthenticated — browser-facing):**
+```
+GET  /api/pages                         → list all pages (PageMeta[])
+GET  /api/pages/{name}/source           → raw JSX string
+GET  /api/pages/{name}/meta             → PageMeta JSON
+GET  /api/pages/{name}/export           → ZIP download (manifest-based, see §8)
+GET  /api/pages/{name}/store            → list blobs in page's namespace
+PUT  /api/pages/{name}/store            → write a blob in page's namespace
+GET  /api/app-pages/{app}/layout/source → layout JSX (204 if no layout)
+GET  /api/app-pages/{app}/{page}/source → page JSX
+```
 
 ---
 
@@ -254,12 +337,12 @@ Domain apps register themselves with Groot at startup via a standardized protoco
 ### 7.1 The Protocol
 
 ```python
-# groot/app_protocol.py
+# groot/app_interface.py
 
 from typing import Protocol, runtime_checkable
 
 @runtime_checkable
-class AppProtocol(Protocol):
+class GrootAppModule(Protocol):
     """Every Groot app module must expose a loader that satisfies this protocol."""
 
     async def register(
@@ -271,6 +354,10 @@ class AppProtocol(Protocol):
         """Called by Groot runtime at startup. Register tools, pages, and any
         artifacts your app needs. Groot passes in the shared runtime services."""
         ...
+
+    async def health_check(self) -> dict:
+        """Optional. Return { status: "ok"|"error", ... }"""
+        ...
 ```
 
 ### 7.2 Example App (ships with Groot)
@@ -278,38 +365,56 @@ class AppProtocol(Protocol):
 ```python
 # groot_apps/_example/loader.py
 
-from groot.tools import ToolRegistry
-from groot.page_server import PageServer
-from groot.artifact_store import ArtifactStore
+APP_META = {
+    "name": "_example",
+    "version": "0.1.0",
+    "description": "Reference scaffold — one echo tool and one hello page",
+}
 
-async def register(tool_registry: ToolRegistry, page_server: PageServer, store: ArtifactStore):
-    """Minimal example — one tool, one page. Copy this to start your own app."""
+async def register(tool_registry, page_server, store):
+    @tool_registry.tool(name="example.echo", description="Echoes a message")
+    async def echo(message: str) -> EchoResult:
+        return EchoResult(echo=message)
 
-    @tool_registry.tool(name="example.hello", description="Returns a greeting")
-    async def hello(name: str = "world") -> dict:
-        return {"message": f"Hello, {name}!"}
-
-    await page_server.register_static("example-demo", "pages/demo.jsx")
+    await page_server.upsert_page("_example-hello", HELLO_JSX, "Hello world demo page")
 ```
 
-### 7.3 Groot Startup (Generalized)
+### 7.3 Groot Startup
 
 ```python
-# groot/server.py
+# groot/server.py (simplified)
 
 ENABLED_APPS = os.getenv("GROOT_APPS", "_example").split(",")
 
-@app.on_event("startup")
-async def startup():
+@asynccontextmanager
+async def lifespan(app):
+    store = ArtifactStore(...)
+    await store.init_db()
     for app_name in ENABLED_APPS:
-        module = importlib.import_module(f"groot_apps.{app_name}.loader")
-        # Validate protocol compliance before calling register
-        if not hasattr(module, 'register'):
-            raise RuntimeError(f"App '{app_name}' missing register() in loader.py")
-        await module.register(tool_registry, page_server, artifact_store)
+        try:
+            module = importlib.import_module(f"groot_apps.{app_name}.loader")
+            await module.register(tool_registry, page_server, store)
+            loaded_apps[app_name] = {"module": module, "meta": module.APP_META, "status": "loaded"}
+        except ModuleNotFoundError:
+            pass  # app not installed — silently skipped
+        except Exception as e:
+            loaded_apps[app_name] = {"module": None, "meta": {}, "status": "error", "error": str(e)}
+    yield
 ```
 
-### 7.4 Convention
+### 7.4 App Module HTTP API (authenticated)
+
+```
+GET    /api/apps                  → list loaded apps (name, status, tools, pages)
+GET    /api/apps/{name}           → app detail: tools, pages, health
+GET    /api/apps/{name}/health    → delegates to module.health_check()
+DELETE /api/apps/{name}           → unload app; ?purge_data=true deletes blobs+schemas+pages;
+                                    ?force=true also removes directory from disk
+GET    /api/apps/{name}/export    → ZIP download (manifest-based, see §8)
+POST   /api/apps/import           → multipart ZIP upload → extract → hot-load
+```
+
+### 7.5 Convention
 
 | Item | Convention |
 |---|---|
@@ -318,11 +423,153 @@ async def startup():
 | Tool namespace | `{app_name}.{tool_name}` (e.g., `sage.solve_optimization`) |
 | Page namespace | `{app_name}-{page_name}` (e.g., `sage-dashboard`) |
 | Config | App reads its own env vars; Groot passes shared services only |
-| Docs | Each app should include a `README.md` in its directory |
+| Metadata | `APP_META` dict in loader.py: name, version, description |
 
 ---
 
-## 8. Authentication
+## 8. Export / Import — ZIP Bundle Format
+
+Groot uses a unified manifest-based ZIP format for both standalone page exports and module app exports.
+
+### 8.1 ZIP Structure
+
+```
+# Standalone page export  (GET /api/pages/{name}/export)
+manifest.json
+pages/{name}.jsx
+blobs/{key}              ← only when ?include_data=true
+
+# Module app export  (GET /api/apps/{name}/export)
+manifest.json
+{name}/                  ← full Python app directory
+  __init__.py
+  loader.py
+  ...
+blobs/{key}              ← only when ?include_data=true
+```
+
+### 8.2 Manifest Schema
+
+```json
+{
+  "groot_version": "0.3.0",
+  "exported_at": "2026-03-18T18:00:00Z",
+  "name": "my-page",
+  "description": "...",
+  "kind": "page",          // "page" | "module_app"
+  "pages": [
+    { "name": "my-page", "path": "pages/my-page.jsx" }
+  ],
+  "blobs": [
+    { "key": "my-page/data", "path": "blobs/my-page/data", "content_type": "application/json" }
+  ]
+}
+```
+
+### 8.3 Import Routing (POST /api/apps/import)
+
+```
+PATH A — manifest.json present at ZIP root:
+    kind = "page"        → restore page JSX + blobs → return immediately
+    kind = "module_app"  → pre-read blobs, extract app dir, fall through to hot-load
+    kind = unknown       → 400
+
+PATH B — no manifest, bare .jsx files present → legacy page import
+
+PATH C — no manifest, other bare files → 400 (unrecognized format)
+
+PATH D — no manifest, no bare files → legacy module app (single top-level dir)
+
+Hot-load (PATH A module_app + PATH D):
+    importlib.import_module() or reload() if already in sys.modules
+    blob restore executes after successful hot-load
+```
+
+---
+
+## 9. Multi-page App Bundles
+
+Multi-page apps are **DB-only** — no Python module required. The LLM creates an app record and its pages purely through tool calls or REST.
+
+```
+POST /api/app-bundles          → create multi-page app from JSON bundle
+GET  /api/app-bundles/{name}   → export multi-page app as JSON bundle
+```
+
+**Bundle JSON format:**
+```json
+{
+  "name": "my-app",
+  "description": "...",
+  "pages": [
+    { "page": "index", "jsx_code": "...", "description": "Layout/nav" },
+    { "page": "home",  "jsx_code": "...", "description": "Home page" }
+  ]
+}
+```
+
+**Routing:**
+- `/apps/my-app/` → renders `index` layout + `home` (default)
+- `/apps/my-app/clock` → renders `index` layout + `clock` sub-page
+- Layout receives `{children}` prop; sub-pages render inside it
+
+---
+
+## 10. Unified Web Apps API
+
+`GET /api/web-apps` returns all three kinds of hosted content in a single list, for the dashboard and any client that wants to enumerate what's running.
+
+```json
+[
+  {
+    "name": "todo-app",
+    "kind": "page",              // "page" | "app_bundle" | "module_app"
+    "description": "...",
+    "url": "http://localhost:8000/apps/todo-app",
+    "created_at": "2026-03-18T10:00:00Z",
+    "updated_at": "2026-03-18T10:05:00Z",
+    "last_opened_at": "2026-03-18T18:30:00Z"   // null if never opened
+  }
+]
+```
+
+**`last_opened_at` tracking:**
+- Standalone pages: updated in the `pages` table on every `GET /apps/{name}`
+- Multi-page apps: updated in the `apps` table on every `GET /apps/{name}/`
+- Module apps: stored in `loaded_apps[name]` dict in memory (resets on restart)
+- Module app `created_at`/`updated_at` derived from min/max of associated `{name}-*` pages
+
+---
+
+## 11. Built-in Pages
+
+Both built-in pages are stored as Python triple-quoted JSX strings in `groot/builtin_pages.py` and upserted to the pages table on every server start. They are served by the same page server as any user-created page.
+
+### 11.1 Groot Dashboard (`/`)
+
+- **API key field:** debounced validation against `/api/system/state`, color dot indicator; synced from `/api/config` on load (prevents stale key after restart)
+- **Available Web Apps:** lists all three kinds with three-column timestamp display (Created / Modified / Opened), search/filter, per-row action dropdowns
+- **Actions per kind:**
+  - `page`: View · Edit source · Export App · Export App + Data · Delete
+  - `app_bundle`: View · Export App · Export App + Data · Delete
+  - `multi_page_bundle`: View · Export Bundle · Delete
+- **Export App + Data**: confirmation modal before download; loading toast during fetch
+- **Import ZIP**: spinner, success/error toast, inline message banner
+- **System stats grid**: Pages / Blobs / Schemas / Artifacts — each card clickable, navigates to the corresponding Artifact Browser tab
+- **Uptime**: formatted as "Xm Ys" / "Xh Ym" (not raw seconds)
+
+### 11.2 Artifact Browser (`/artifacts`)
+
+- Tabs: Pages · Blobs · Schemas · Events
+- Fetches `/api/config` on mount to obtain API key; passes `X-Groot-Key` on all authenticated calls
+- Pages tab: search/filter, compact/table view toggle, source modal viewer
+- Blobs tab: key, size, content type, timestamp, inline Inspect (read content)
+- Schemas tab: name, timestamp, field count, inline Inspect
+- Initial tab from `?tab=` query param (deep-linkable from dashboard stat cards)
+
+---
+
+## 12. Authentication
 
 **v0.1 MVP:** API key middleware only.
 
@@ -330,154 +577,85 @@ async def startup():
 # Header: X-Groot-Key: groot_sk_xxxxxxxxxxxx
 # Query param (for MCP SSE): ?key=groot_sk_xxxxxxxxxxxx
 # Keys stored in GROOT_API_KEYS env var (comma-separated)
-# No database needed for MVP
+# GET /api/config (unauthenticated): returns api_key for browser-side auto-discovery
+# Dev bypass: GROOT_DEV_BYPASS=true skips key check (never enable in production)
 ```
+
+**Key auto-generation:** On startup, if `GROOT_API_KEYS` is not set, a random key is generated and printed to stdout. If it is set, the env var is respected.
 
 ---
 
-## 9. Build Phases
+## 13. Build Phases — Actual Status
 
-### Phase G1 — Runtime Core (Hours 1-10)
+| Phase | Description | Status | SHA | Tests |
+|---|---|---|---|---|
+| G1 | Runtime core (tools, store, auth, server) | ✅ Complete | 79ac953 | 105 |
+| G2 | MCP transport (stdio + SSE) | ✅ Complete | 87a5845 | 125 |
+| G3 | Page server + React shell | ✅ Complete | d1ed76c | 160 |
+| G-APP | Generalized app module interface | ✅ Complete | 22986a5 | 172 |
+| Shell hotfixes | JSX import/export strip, hook injection | ✅ Complete | ed91b20 | 172 |
+| Delete App | DELETE /api/apps/{name} + purge | ✅ Complete | fed4ea9 | 184 |
+| Export App | GET /api/apps/{name}/export ZIP | ✅ Complete | 406322a | 197 |
+| Import App | POST /api/apps/import ZIP hot-load | ✅ Complete | merged | 211 |
+| Dashboard v0.3.0 | UI overhaul (two review rounds) | ✅ Complete | 0fdc443 | 211 |
+| v0.3.0-session-2 | Config tool, multi-page apps, URL fixes | ✅ Complete | 7f638fa | 243→266 |
+| v0.3.0-session-3 | Dual export, last_opened_at, web-apps, UX | ✅ Complete | 01c7cd8 | 266 |
 
-```
-Branch: feature/g1-runtime-core
+**v0.3.0-session-2 highlights:**
+- MCP stdio + HTTP combined mode: uvicorn logs redirected to stderr (prevents MCP JSON stream corruption)
+- `/api/config` endpoint: browser-discoverable api_key, base_url, dashboard_url
+- `get_groot_config()` tool #15: Claude discovers connection details via MCP
+- Multi-page app support: `apps` + `app_pages` DB tables; tools 16-19; `DynamicAppPage` shell component; path-based routing replaces hash-based
+- Multi-page JSON bundle import/export (`/api/app-bundles`)
+- Dashboard: 5-bug fix round (hash links, shell chrome, upsert_page, stat-card nav, artifact tab routing)
 
-1. New repo: Project_Groot
-2. pyproject.toml: fastapi, uvicorn, pydantic, python-dotenv, aiosqlite
-3. groot/config.py — Settings class
-4. groot/models.py — All Pydantic schemas for tool I/O
-5. groot/artifact_store.py — SQLite init, CRUD for blobs/pages/schemas/events
-6. groot/auth.py — API key middleware
-7. groot/tools.py — All 12 core tools implemented against artifact_store
-8. groot/server.py — FastAPI app, lifespan, tool routes, health check
-9. Tests: test_tools.py, test_artifact_store.py, test_auth.py
-10. Verify: POST /tools/write_blob → read back → list_blobs works end to end
-```
-
-### Phase G2 — MCP Transport (Hours 11-16)
-
-```
-Branch: feature/g2-mcp-transport
-
-1. groot/mcp_transport.py — Register all 12 core tools as MCP tools
-2. stdio transport (for Claude Desktop)
-3. SSE transport (for ChatGPT + remote clients)
-4. __main__.py entry point: uvicorn server + optional MCP stdio mode
-5. Test: connect Claude Desktop to Groot, call write_blob and read_blob
-```
-
-### Phase G3 — Page Server + React Shell (Hours 17-26)
-
-```
-Branch: feature/g3-page-server
-
-1. groot/page_server.py — Dynamic route registration, JSX delivery endpoint
-2. groot-shell/ — React shell app (single index.html, no build step)
-   - App.jsx: route shell, dynamic page loader
-   - Babel standalone for JSX transform (CDN)
-   - Built-in pages: Groot dashboard, artifact browser
-3. Serve shell from FastAPI: GET / → index.html
-4. Test: create_page("test", simple_jsx) → visit /apps/test → component renders
-5. Test: update_page replaces component live
-```
-
-### Phase G4 — Sage App Module ❌ DEFERRED
-
-> **Status:** Deferred to Project Sage's own repository.
-> **Decision date:** 2026-03-13
-> **Decided by:** Peter (human review)
-
-**Rationale:** Sage is a domain-specific optimization engine with its own development lifecycle, dependency tree (sage-solver-core, PuLP, etc.), and release cadence. Coupling it into the Groot repo would violate Groot's core principle of domain-agnosticism. Instead:
-
-1. **Groot ships as a clean, forkable runtime** — any developer or AI agent can clone it, drop in their own `groot_apps/{name}/loader.py`, and have a working LLM runtime without needing to understand or remove sage-specific code.
-2. **Sage integrates with Groot as an external app module** — Project Sage will use the same ClickUp workflow pipeline and Groot's app module interface (`register()`) to plug in, but from its own repo.
-3. **The generalized app module interface (G-APP) replaces G4** — instead of building one specific app, we build the scaffold and documentation that makes Groot usable by *any* app.
-
-**What was G4 becomes:** Project Sage work tracked in its own ClickUp space, consuming Groot as a dependency.
-
-**Original G4 tasks closed:**
-- G4-1, G4-2, G4-3 → status COMPLETE with deferral comments
+**v0.3.0-session-3 highlights:**
+- Manifest-based ZIP export for both pages and module apps (unified `manifest.json` format)
+- 4-path import routing (manifest page / manifest module_app / bare .jsx / legacy module app)
+- `last_opened_at` column on pages + apps; `touch_page()` / `touch_app()` helpers
+- `GET /api/web-apps`: unified endpoint — all three kinds with timestamps
+- Dashboard: three-column timestamp display (Created / Modified / Opened)
+- Dashboard: Export App + Data confirmation modal, loading toast, filename from Content-Disposition
+- Page store endpoints: `GET/PUT /api/pages/{name}/store`
 
 ---
 
-### Phase G-APP — Generalized App Module Interface (Replaces G4)
-
-> **Status:** HUMAN-REVIEW-2 (ClickUp task 868hw9808)
-> **Added:** 2026-03-13
-
-**Objective:** Make Groot forkable by any developer or AI agent. Ship the generalized app module interface — the protocol, scaffold, documentation, and example loader that lets anyone build a Groot app without reading Groot internals.
-
-**Why this exists:** When G4 (sage) was deferred, it revealed that Groot's app module interface (§7) was described only through a sage-specific example. A domain-agnostic runtime needs a domain-agnostic onboarding path. G-APP closes that gap.
-
-**Branch:** `feature/g-app-module-interface`
-
-**Deliverables:**
-
-1. **App Module Protocol** — `groot/app_protocol.py`
-   - `AppProtocol` (Python Protocol class): `register(tool_registry, page_server, store)` with full type hints
-   - Startup lifecycle: `on_startup()` / `on_shutdown()` hooks
-   - App metadata: name, version, description, author
-   - Groot validates each loader against the protocol at startup — clear error messages if `register()` signature is wrong
-
-2. **Example App Scaffold** — `groot_apps/_example/`
-   - `loader.py` — minimal working `register()` with one demo tool + one demo page
-   - `README.md` — step-by-step "Build Your First Groot App" guide
-   - Serves as both documentation and integration test fixture
-
-3. **App Discovery & Loading** — Updates to `groot/server.py`
-   - `GROOT_APPS` env var → discover → validate protocol → call `register()`
-   - Structured error reporting: missing loader, bad signature, import failure
-   - Namespace isolation: app tools prefixed with app name (e.g., `sage.solve_optimization`)
-
-4. **REST Endpoints for App Introspection**
-   - `GET /api/apps` → list loaded apps with metadata
-   - `GET /api/apps/{name}` → app detail: tools registered, pages registered, status
-
-5. **Developer Documentation** — `docs/APP_MODULE_GUIDE.md`
-   - The contract: what Groot gives you, what you provide
-   - Directory layout convention: `groot_apps/{name}/loader.py`
-   - Tool registration, page registration, store access patterns
-   - Testing your app module independently
-
-**Acceptance Criteria:**
-- [ ] `groot_apps/_example/` loads successfully on startup with `GROOT_APPS=_example`
-- [ ] Example app's demo tool callable via REST and MCP
-- [ ] Example app's demo page renders at `/apps/_example-demo`
-- [ ] `GET /api/apps` returns loaded app metadata
-- [ ] A loader with wrong `register()` signature produces a clear error, not a traceback
-- [ ] `APP_MODULE_GUIDE.md` is sufficient for a developer (or AI agent) to build a new app module without reading Groot source
-
----
-
-## 10. Key Design Decisions
+## 14. Key Design Decisions
 
 | # | Decision | Choice | Rationale |
 |---|---|---|---|
 | 1 | LLM topology | External client | LLM calls Groot via MCP/HTTP. Never embedded. |
 | 2 | UI framework | React | LLM codegen quality for JSX >> Flutter/Dart. Component reuse maps to artifact accumulation. |
-| 3 | JSX delivery (MVP) | Babel standalone eval | No build step. Fast to ship. Replace in v0.2 with module federation. |
-| 4 | Storage | SQLite + filesystem | Zero-dependency for MVP. Upgrade path to Postgres + S3. |
-| 5 | MCP transport | stdio (v0.1) + SSE (v0.1) | Both. stdio for Claude Desktop, SSE for ChatGPT. |
+| 3 | JSX delivery | Babel standalone eval | No build step. Fast to ship. LLM-generated JSX stripped of import/export before eval; hooks injected into scope. |
+| 4 | Storage | SQLite (no filesystem) | Zero-dependency for MVP. Upgrade path to Postgres. |
+| 5 | MCP transport | stdio + SSE | Both. stdio for Claude Desktop, SSE for remote clients. |
 | 6 | App modules | Import at startup | Simple, no service discovery overhead for MVP. |
 | 7 | State isolation | Per-request (no module-level state) | Multi-app from day one. Learned from sage-mcp's ServerState limitation. |
 | 8 | In-chat design flow | Claude chat → approve → create_page | Chat is Groot's design surface. Every page reviewed before entering artifact store. |
-| 9 | App module scope | Generalized, not sage-specific | G4 (sage) deferred to own repo. Groot ships domain-agnostic with example scaffold. Any dev/AI can fork and build. |
-| 10 | App module protocol | Python Protocol class with runtime check | Validates loader at startup. Clear errors for bad signatures. Prevents runtime surprises. |
+| 9 | App module scope | Generalized, not sage-specific | G4 (sage) deferred to own repo. Groot ships domain-agnostic with example scaffold. |
+| 10 | App module protocol | Python Protocol class | Documentation-first; runtime_checkable but not enforced — avoids isinstance overhead on app authors. |
+| 11 | Multi-page apps | DB-only (no Python module needed) | LLM can build multi-page apps purely through tool calls; no file system access required. |
+| 12 | Export format | Manifest-based ZIP | Single format for both page and module app exports; manifest.json describes kind and content; blobs optional with ?include_data=true. |
+| 13 | Import routing | 4-path router on manifest presence | Backwards-compatible: old bare-JSX ZIPs still work; new manifest ZIPs take priority. |
+| 14 | last_opened_at | DB column (pages/apps); in-memory (module apps) | Module apps have no DB row — session-level tracking is sufficient; page/app_bundle tracking is durable. |
+| 15 | /api/config | Unauthenticated | Browser needs the API key to authenticate subsequent calls — chicken-and-egg requires at least one unauthenticated endpoint. |
+| 16 | Unified /api/web-apps | Single endpoint, three kinds | Dashboard needs one list; kinds are distinct enough to warrant a unified view over separate endpoints. |
 
 ---
 
-## 11. Design Rules (non-negotiable)
+## 15. Design Rules (non-negotiable)
 
 1. **Groot runtime never contains domain logic.** It knows nothing about optimization, translation, or governance. It provides a runtime. Apps provide domain tools.
 2. **All LLM interactions go through validated tool calls.** No raw code execution in the runtime.
 3. **Artifact store is append-friendly.** Prefer update operations over deletes. The flywheel depends on accumulation.
 4. **State is per-request.** No module-level mutable state. Learned from sage-mcp v0.1.
-5. **React shell has no build step in v0.1.** Babel standalone CDN only. Ship fast; optimize later.
+5. **React shell has no build step.** Babel standalone CDN only. Ship fast; optimize later.
 6. **Every tool returns structured Pydantic models.** Never bare dicts or exceptions.
+7. **No secrets hardcoded.** All credentials via env vars.
 
 ---
 
-## 12. What Groot Unlocks
+## 16. What Groot Unlocks
 
 | Without Groot | With Groot |
 |---|---|
@@ -486,30 +664,36 @@ Branch: feature/g3-page-server
 | No standard LLM tool interface | Validated tool registry with Pydantic models and MCP transport |
 | No live UI without a build step | React shell + Babel CDN — LLM creates pages, they render instantly |
 | No design review layer | Claude in Chat generates pages; human approves before they enter Groot |
+| Apps are one-off deployments | Export/import any app (or page) as a ZIP bundle; share across instances |
+| No usage tracking | last_opened_at on every page and app; unified /api/web-apps dashboard |
 | sage-cloud is a one-off app | sage integrates from its own repo as a Groot app module |
 | New AI agents start from scratch | Any AI agent can fork Groot and have a runtime in minutes |
 
 ---
 
-## 13. Resume Checklist (for Claude Code)
+## 17. Resume Checklist (for Claude Code)
 
 ```
-[ ] 1. Read this file (GROOT_SPEC_V0.1.md)
-[ ] 2. Read groot_spec.md (Peter's original vision — understand the why)
-[ ] 3. Read .build/AGENT.md, .build/SPEC.md, .build/BUILD_LOG.md
-[ ] 4. Check ClickUp Claude Code Queue (901113364003) for pending tasks
-[ ] 5. Create new GitHub repo: Project_Groot (if not already created)
-[ ] 6. Phase G1: groot/artifact_store.py → tools.py → server.py → auth.py → tests
-[ ] 7. Phase G2: mcp_transport.py → stdio + SSE → entry points → tests
-[ ] 8. Phase G3: page_server.py → React shell → integration tests
-[ ] 9. Phase G-APP: app_protocol.py → _example scaffold → docs/APP_MODULE_GUIDE.md
-[ ] 10. Tag groot-v0.1.0 after G3 + G-APP pass all acceptance criteria
+[x] 1. Read this file (GROOT_SPEC_V0.1.md)
+[x] 2. Read .build/AGENT.md, .build/SPEC.md, .build/BUILD_LOG.md
+[x] 3. Check ClickUp Claude Code Queue (901113364003) for pending tasks
+[x] 4. Phase G1: artifact_store + tools + server + auth — 105 tests
+[x] 5. Phase G2: mcp_transport stdio + SSE — 125 tests
+[x] 6. Phase G3: page_server + React shell — 160 tests
+[x] 7. Phase G-APP: app_interface + _example scaffold + APP_MODULE_GUIDE.md — 172 tests
+[x] 8. Shell hotfixes: JSX import strip, component name capture, hook injection
+[x] 9. Delete App (purge_data + force) — 184 tests
+[x] 10. Export App ZIP — 197 tests
+[x] 11. Import App ZIP hot-load — 211 tests
+[x] 12. Dashboard v0.3.0 UI overhaul — 211 tests, tag groot-v0.1.0
+[x] 13. v0.3.0-session-2: config tool, multi-page apps, URL fixes, bundle import/export
+[x] 14. v0.3.0-session-3: dual export (manifest ZIP), last_opened_at, /api/web-apps, dashboard UX
+[ ] 15. Next: check ClickUp queue for new tasks
 ```
-
-**Note:** Phase G4 (sage) is deferred. Sage will integrate with Groot from Project Sage's own repo. Do not build sage-specific code in this repo.
 
 ---
 
-*This spec was authored by Claude (Cowork) on 2026-03-13 based on Peter's groot_spec.md, BACK_TO_WORK_SPEC.md, and session discussion.*
-*Updated 2026-03-13: G4 deferred to Project Sage. Added G-APP generalized app module interface. Repo structure and §7 revised for domain-agnostic forkability.*
+*Original spec authored by Claude (Cowork) on 2026-03-13 based on Peter's groot_spec.md and session discussion.*
+*G4 deferred to Project Sage on 2026-03-13. G-APP added same day.*
+*Updated 2026-03-18 to reflect v0.3.0 built state (SHA 01c7cd8, 266 tests).*
 *Architecture diagram available as groot_architecture.jsx (first Groot artifact, generated in-chat).*

@@ -95,50 +95,47 @@ def test_export_zip_excludes_pycache(example_client):
 
 
 def test_export_zip_contains_metadata(example_client):
+    """New format: manifest.json at ZIP root with kind=module_app."""
     resp = example_client.get("/api/apps/_example/export")
     with _open_zip(resp) as zf:
         names = zf.namelist()
-        assert "_example/_export_meta.json" in names
-        meta = json.loads(zf.read("_example/_export_meta.json"))
-    assert meta["name"] == "_example"
-    assert meta["status"] == "loaded"
+        assert "manifest.json" in names
+        manifest = json.loads(zf.read("manifest.json"))
+    assert manifest["name"] == "_example"
+    assert manifest["kind"] == "module_app"
 
 
 # ---------------------------------------------------------------------------
-# include_data=true — pages and blobs bundled
+# include_data=true — blobs bundled in blobs/ directory
 # ---------------------------------------------------------------------------
 
-def test_export_include_data_contains_pages(example_client):
-    """_example-hello page should be included in the ZIP."""
+def test_export_include_data_contains_no_pages_json(example_client):
+    """New format does not produce _export_pages.json — pages live in module."""
     resp = example_client.get("/api/apps/_example/export?include_data=true")
     assert resp.status_code == 200
-    with _open_zip(resp) as zf:
-        names = zf.namelist()
-        assert "_example/_export_pages.json" in names
-        pages = json.loads(zf.read("_example/_export_pages.json"))
-    page_names = [p["name"] for p in pages]
-    assert "_example-hello" in page_names
-
-
-def test_export_include_data_pages_have_source(example_client):
-    resp = example_client.get("/api/apps/_example/export?include_data=true")
-    with _open_zip(resp) as zf:
-        pages = json.loads(zf.read("_example/_export_pages.json"))
-    hello = next(p for p in pages if p["name"] == "_example-hello")
-    assert len(hello["source"]) > 0
-
-
-def test_export_no_include_data_omits_pages_json(example_client):
-    """Without include_data, pages json file should not appear."""
-    resp = example_client.get("/api/apps/_example/export")
     with _open_zip(resp) as zf:
         names = zf.namelist()
     assert "_example/_export_pages.json" not in names
 
 
+def test_export_include_data_manifest_present(example_client):
+    """manifest.json is always present with correct kind."""
+    resp = example_client.get("/api/apps/_example/export?include_data=true")
+    with _open_zip(resp) as zf:
+        manifest = json.loads(zf.read("manifest.json"))
+    assert manifest["kind"] == "module_app"
+
+
+def test_export_no_include_data_omits_blobs_dir(example_client):
+    """Without include_data, blobs/ directory should not appear."""
+    resp = example_client.get("/api/apps/_example/export")
+    with _open_zip(resp) as zf:
+        names = zf.namelist()
+    assert not any(n.startswith("blobs/") for n in names)
+
+
 def test_export_include_data_with_blobs(example_client):
-    """Blobs prefixed with the app name are included when include_data=true."""
-    # Write a blob under the _example namespace
+    """Blobs prefixed with the app name appear in blobs/ with include_data=true."""
     example_client.post(
         "/api/tools/write_blob",
         json={"key": "_example/test.txt", "data": "hello from blob"},
@@ -148,9 +145,10 @@ def test_export_include_data_with_blobs(example_client):
     assert resp.status_code == 200
     with _open_zip(resp) as zf:
         names = zf.namelist()
-        assert "_example/_export_blobs.json" in names
-        blobs = json.loads(zf.read("_example/_export_blobs.json"))
-    keys = [b["key"] for b in blobs]
+        assert "blobs/_example/test.txt" in names
+        assert zf.read("blobs/_example/test.txt").decode() == "hello from blob"
+        manifest = json.loads(zf.read("manifest.json"))
+    keys = [b["key"] for b in manifest["blobs"]]
     assert "_example/test.txt" in keys
 
 

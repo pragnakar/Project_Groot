@@ -118,6 +118,16 @@ class ArtifactStore:
                     FOREIGN KEY (app_name) REFERENCES apps(name) ON DELETE CASCADE
                 )
             """)
+            # Schema migrations — idempotent, safe on existing DBs
+            for _sql in [
+                "ALTER TABLE pages ADD COLUMN last_opened_at TEXT",
+                "ALTER TABLE apps ADD COLUMN last_opened_at TEXT",
+            ]:
+                try:
+                    await db.execute(_sql)
+                except Exception:
+                    pass  # column already exists
+
             await db.commit()
 
     # ------------------------------------------------------------------
@@ -212,12 +222,12 @@ class ArtifactStore:
         """Replace a page's JSX. Raises KeyError if not found."""
         async with aiosqlite.connect(self._db_path) as db:
             async with db.execute(
-                "SELECT description, created_at FROM pages WHERE name = ?", (name,)
+                "SELECT description, created_at, last_opened_at FROM pages WHERE name = ?", (name,)
             ) as cur:
                 row = await cur.fetchone()
             if row is None:
                 raise KeyError(f"Page not found: {name!r}")
-            description, created_at = row[0], row[1]
+            description, created_at, last_opened_at = row[0], row[1], row[2]
             now = _now()
             await db.execute(
                 "UPDATE pages SET jsx_code = ?, updated_at = ? WHERE name = ?",
@@ -225,20 +235,20 @@ class ArtifactStore:
             )
             await db.commit()
 
-        return PageResult(name=name, url=_page_url(name), description=description, created_at=created_at, updated_at=now)
+        return PageResult(name=name, url=_page_url(name), description=description, created_at=created_at, updated_at=now, last_opened_at=last_opened_at)
 
     async def get_page(self, name: str) -> PageResult:
         """Fetch a single page. Raises KeyError if not found."""
         async with aiosqlite.connect(self._db_path) as db:
             async with db.execute(
-                "SELECT name, description, created_at, updated_at FROM pages WHERE name = ?", (name,)
+                "SELECT name, description, created_at, updated_at, last_opened_at FROM pages WHERE name = ?", (name,)
             ) as cur:
                 row = await cur.fetchone()
 
         if row is None:
             raise KeyError(f"Page not found: {name!r}")
 
-        return PageResult(name=row[0], url=_page_url(row[0]), description=row[1], created_at=row[2], updated_at=row[3])
+        return PageResult(name=row[0], url=_page_url(row[0]), description=row[1], created_at=row[2], updated_at=row[3], last_opened_at=row[4])
 
     async def get_page_source(self, name: str) -> str:
         """Fetch raw JSX source for a page. Raises KeyError if not found."""
@@ -255,12 +265,12 @@ class ArtifactStore:
         """List all pages sorted by updated_at descending."""
         async with aiosqlite.connect(self._db_path) as db:
             async with db.execute(
-                "SELECT name, description, created_at, updated_at FROM pages ORDER BY updated_at DESC"
+                "SELECT name, description, created_at, updated_at, last_opened_at FROM pages ORDER BY updated_at DESC"
             ) as cur:
                 rows = await cur.fetchall()
 
         return [
-            PageMeta(name=r[0], url=_page_url(r[0]), description=r[1], created_at=r[2], updated_at=r[3])
+            PageMeta(name=r[0], url=_page_url(r[0]), description=r[1], created_at=r[2], updated_at=r[3], last_opened_at=r[4])
             for r in rows
         ]
 
@@ -268,7 +278,7 @@ class ArtifactStore:
         """Create or update a page atomically. Never raises if page exists or doesn't exist."""
         async with aiosqlite.connect(self._db_path) as db:
             async with db.execute(
-                "SELECT description, created_at FROM pages WHERE name = ?", (name,)
+                "SELECT description, created_at, last_opened_at FROM pages WHERE name = ?", (name,)
             ) as cur:
                 row = await cur.fetchone()
             now = _now()
@@ -278,21 +288,33 @@ class ArtifactStore:
                     (name, jsx_code, description, now, now),
                 )
                 created_at = now
+                last_opened_at = None
             else:
                 existing_description = description if description else row[0]
                 created_at = row[1]
+                last_opened_at = row[2]
                 await db.execute(
                     "UPDATE pages SET jsx_code = ?, description = ?, updated_at = ? WHERE name = ?",
                     (jsx_code, existing_description, now, name),
                 )
                 description = existing_description
             await db.commit()
-        return PageResult(name=name, url=_page_url(name), description=description, created_at=created_at, updated_at=now)
+        return PageResult(name=name, url=_page_url(name), description=description, created_at=created_at, updated_at=now, last_opened_at=last_opened_at)
 
     async def delete_page(self, name: str) -> bool:
         """Delete a page. Returns True if deleted, False if not found."""
         async with aiosqlite.connect(self._db_path) as db:
             cur = await db.execute("DELETE FROM pages WHERE name = ?", (name,))
+            await db.commit()
+        return cur.rowcount > 0
+
+    async def touch_page(self, name: str) -> bool:
+        """Set last_opened_at to now for a page. Returns True if the page exists."""
+        now = _now()
+        async with aiosqlite.connect(self._db_path) as db:
+            cur = await db.execute(
+                "UPDATE pages SET last_opened_at = ? WHERE name = ?", (now, name)
+            )
             await db.commit()
         return cur.rowcount > 0
 
@@ -505,12 +527,22 @@ class ArtifactStore:
         """List all registered multi-page apps with page counts."""
         async with aiosqlite.connect(self._db_path) as db:
             async with db.execute(
-                """SELECT a.name, a.description, a.created_at,
+                """SELECT a.name, a.description, a.created_at, a.updated_at, a.last_opened_at,
                    (SELECT COUNT(*) FROM app_pages p WHERE p.app_name = a.name) AS page_count
                    FROM apps a ORDER BY a.name"""
             ) as cur:
                 rows = await cur.fetchall()
-        return [{"name": r[0], "description": r[1] or "", "created_at": r[2], "page_count": r[3]} for r in rows]
+        return [
+            {
+                "name": r[0],
+                "description": r[1] or "",
+                "created_at": r[2],
+                "updated_at": r[3],
+                "last_opened_at": r[4],
+                "page_count": r[5],
+            }
+            for r in rows
+        ]
 
     async def get_app_info(self, name: str) -> dict:
         """Return app metadata dict. Raises KeyError if app not found."""
@@ -522,3 +554,13 @@ class ArtifactStore:
         if row is None:
             raise KeyError(f"App not found: {name!r}")
         return {"name": row[0], "description": row[1] or "", "layout_jsx": row[2] or ""}
+
+    async def touch_app(self, name: str) -> bool:
+        """Set last_opened_at to now for an app. Returns True if the app exists."""
+        now = _now()
+        async with aiosqlite.connect(self._db_path) as db:
+            cur = await db.execute(
+                "UPDATE apps SET last_opened_at = ? WHERE name = ?", (now, name)
+            )
+            await db.commit()
+        return cur.rowcount > 0

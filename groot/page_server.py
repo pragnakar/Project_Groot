@@ -5,10 +5,11 @@ import json as _json
 import logging
 import re
 import zipfile
+from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Query
-from fastapi.responses import PlainTextResponse, StreamingResponse
+from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 
 from groot.artifact_store import ArtifactStore
 from groot.models import PageMeta, PageResult
@@ -77,18 +78,41 @@ class PageServer:
                 raise HTTPException(status_code=404, detail=f"Page not found: {name!r}")
 
         @router.get("/api/pages/{name}/export")
-        async def page_export(name: str):
-            """Export a standalone page as a ZIP containing JSX source + metadata JSON."""
+        async def page_export(name: str, include_data: bool = Query(default=False)):
+            """Export a standalone page as a ZIP: manifest.json + pages/{name}.jsx + optional blobs/."""
             try:
                 jsx = await store.get_page_source(name)
                 meta = await store.get_page(name)
             except KeyError:
                 raise HTTPException(status_code=404, detail=f"Page not found: {name!r}")
 
+            blobs_exported = []
             buf = io.BytesIO()
             with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
-                zf.writestr(f"{name}.jsx", jsx)
-                zf.writestr(f"{name}_meta.json", _json.dumps(meta.model_dump(), indent=2))
+                zf.writestr(f"pages/{name}.jsx", jsx)
+                if include_data:
+                    app_blobs = await store.list_blobs(prefix=f"{name}/")
+                    for blob_item in app_blobs:
+                        try:
+                            blob_data = await store.read_blob(blob_item.key)
+                            zf.writestr(f"blobs/{blob_item.key}", blob_data.data)
+                            blobs_exported.append({
+                                "key": blob_item.key,
+                                "path": f"blobs/{blob_item.key}",
+                                "content_type": blob_item.content_type,
+                            })
+                        except Exception:
+                            pass
+                manifest = {
+                    "groot_version": "0.3.0",
+                    "exported_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "name": name,
+                    "description": meta.description,
+                    "kind": "page",
+                    "pages": [{"name": name, "path": f"pages/{name}.jsx"}],
+                    "blobs": blobs_exported,
+                }
+                zf.writestr("manifest.json", _json.dumps(manifest, indent=2))
             buf.seek(0)
             return StreamingResponse(
                 buf,
@@ -114,5 +138,36 @@ class PageServer:
             except KeyError:
                 raise HTTPException(status_code=404, detail=f"App page not found: {app_name}/{page_name}")
             return PlainTextResponse(jsx, media_type="text/plain")
+
+        # Store routes registered BEFORE {name} wildcard to avoid shadowing
+        _STORE_KEY_PREFIX = "_page_store/"
+
+        @router.get("/api/pages/{name}/store")
+        async def page_store_get(name: str):
+            """Return this page's persistent JSON store. Returns {} on first use.
+
+            Pages call this on mount to restore saved state. No API key required.
+            """
+            try:
+                blob = await store.read_blob(_STORE_KEY_PREFIX + name)
+                return JSONResponse(_json.loads(blob.data))
+            except KeyError:
+                return JSONResponse({})
+
+        @router.put("/api/pages/{name}/store")
+        async def page_store_put(name: str, request: Request):
+            """Overwrite this page's persistent JSON store. No API key required.
+
+            Pages call this whenever state changes. Body must be a JSON object.
+            Scoped by page name — one page cannot overwrite another's store.
+            """
+            body = await request.body()
+            try:
+                data_str = body.decode("utf-8")
+                _json.loads(data_str)  # validate JSON
+            except Exception:
+                raise HTTPException(status_code=400, detail="Request body must be valid JSON")
+            await store.write_blob(_STORE_KEY_PREFIX + name, data_str, "application/json")
+            return JSONResponse({"ok": True})
 
         return router

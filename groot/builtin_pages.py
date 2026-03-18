@@ -29,6 +29,13 @@ function fmtRelative(iso) {
   return Math.floor(s / 86400) + 'd ago';
 }
 
+function fmtDate(iso) {
+  if (!iso) return '\u2014';
+  const d = new Date(iso);
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return d.getDate() + '\u00a0' + months[d.getMonth()];
+}
+
 function Dropdown({ items }) {
   const [open, setOpen] = React.useState(false);
   const [hovered, setHovered] = React.useState(null);
@@ -72,9 +79,8 @@ function Dropdown({ items }) {
 
 function Page() {
   const [state, setState]     = React.useState(null);
-  const [pages, setPages]     = React.useState([]);
+  const [webApps, setWebApps] = React.useState([]);
   const [events, setEvents]   = React.useState([]);
-  const [apps, setApps]       = React.useState([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError]     = React.useState(null);
   const [apiKey, setApiKey]   = React.useState(() => sessionStorage.getItem('groot_key') || '');
@@ -89,21 +95,16 @@ function Page() {
       }
     }).catch(() => {});
   }, []);
-  const [importFile, setImportFile]     = React.useState(null);
-  const [importing, setImporting]       = React.useState(false);
-  const [importMsg, setImportMsg]       = React.useState(null);
-  const [dbApps, setDbApps]             = React.useState([]);
-  const [importBundleFile, setImportBundleFile] = React.useState(null);
-  const [importingBundle, setImportingBundle]   = React.useState(false);
-  const [showKey, setShowKey]                   = React.useState(false);
-  const [sysExpanded, setSysExpanded]           = React.useState(false);
-  const [deleteStatus, setDeleteStatus]         = React.useState({});
-  const [confirmDelete, setConfirmDelete]       = React.useState(null);
-  const [pageDeleteStatus, setPageDeleteStatus] = React.useState({});
-  const [confirmDeletePage, setConfirmDeletePage] = React.useState(null);
-  const [pageSearch, setPageSearch] = React.useState('');
-  const [toast, setToast] = React.useState(null);
+  const [importFile, setImportFile] = React.useState(null);
+  const [importing, setImporting]   = React.useState(false);
+  const [importMsg, setImportMsg]   = React.useState(null);
+  const [showKey, setShowKey]       = React.useState(false);
+  const [deleteStatus, setDeleteStatus]   = React.useState({});
+  const [confirmDelete, setConfirmDelete] = React.useState(null); // {name, kind}
+  const [search, setSearch]         = React.useState('');
+  const [toast, setToast]           = React.useState(null);
   const [sourceModal, setSourceModal] = React.useState(null);
+  const [confirmDataExport, setConfirmDataExport] = React.useState(null); // {name, kind, url, filename}
 
   const showToast = (msg, ok) => {
     setToast({ msg, ok });
@@ -111,8 +112,15 @@ function Page() {
   };
 
   const triggerDownload = (url, filename) => {
+    showToast('Preparing export\u2026', null);
     fetch(url, {headers: apiKey ? {'X-Groot-Key': apiKey} : {}})
-      .then(r => { if (!r.ok) throw new Error('Export failed: ' + r.status); return r.blob(); })
+      .then(r => {
+        if (!r.ok) throw new Error('Export failed: ' + r.status);
+        const cd = r.headers.get('Content-Disposition') || '';
+        const m = cd.match(/filename[*]?=['"]?([^'";\x20\t]+)['"]?/);
+        if (m) filename = m[1];
+        return r.blob();
+      })
       .then(blob => {
         const sizeKb = (blob.size / 1024).toFixed(1);
         const a = document.createElement('a');
@@ -146,17 +154,13 @@ function Page() {
     setLoading(true);
     Promise.all([
       fetch('/api/system/state', {headers: apiKey ? {'X-Groot-Key': apiKey} : {}}).then(r => r.ok ? r.json() : null),
-      fetch('/api/pages').then(r => r.ok ? r.json() : []),
+      fetch('/api/web-apps').then(r => r.ok ? r.json() : []),
       fetch('/api/system/artifacts', {headers: apiKey ? {'X-Groot-Key': apiKey} : {}}).then(r => r.ok ? r.json() : null),
-      fetch('/api/apps').then(r => r.ok ? r.json() : {apps:[]}),
-      fetch('/api/app-bundles').then(r => r.ok ? r.json() : []),
     ])
-      .then(([sysState, pageList, artifacts, appsData, dbAppList]) => {
+      .then(([sysState, webAppList, artifacts]) => {
         setState(sysState);
-        setPages(pageList || []);
+        setWebApps(webAppList || []);
         setEvents(artifacts ? (artifacts.recent_events || []).slice(0, 10) : []);
-        setApps((appsData && appsData.apps) || []);
-        setDbApps(dbAppList || []);
         setLoading(false);
       })
       .catch(e => { setError(e.message); setLoading(false); });
@@ -197,7 +201,7 @@ function Page() {
   };
 
   const doDeletePage = name => {
-    setPageDeleteStatus(s => ({...s, [name]: 'deleting\u2026'}));
+    setDeleteStatus(s => ({...s, [name]: 'deleting\u2026'}));
     fetch('/api/tools/delete_page', {
       method: 'POST',
       headers: {'X-Groot-Key': apiKey, 'Content-Type': 'application/json'},
@@ -207,78 +211,75 @@ function Page() {
       .then(d => {
         if (d.error || d.detail) {
           const msg = d.detail || d.error;
-          setPageDeleteStatus(s => ({...s, [name]: '\u2717 ' + msg}));
+          setDeleteStatus(s => ({...s, [name]: '\u2717 ' + msg}));
           showToast('Delete failed: ' + (typeof msg === 'string' ? msg : JSON.stringify(msg)), false);
         } else {
-          setPageDeleteStatus(s => ({...s, [name]: '\u2713 deleted'}));
+          setDeleteStatus(s => ({...s, [name]: '\u2713 deleted'}));
           showToast('Page "' + name + '" deleted', true);
           reload();
         }
       })
       .catch(e => {
-        setPageDeleteStatus(s => ({...s, [name]: '\u2717 ' + e.message}));
+        setDeleteStatus(s => ({...s, [name]: '\u2717 ' + e.message}));
         showToast('Delete failed: ' + e.message, false);
       });
-    setConfirmDeletePage(null);
+    setConfirmDelete(null);
   };
 
   const doImport = () => {
     if (!importFile) return;
+    const ext = importFile.name.split('.').pop().toLowerCase();
     setImporting(true);
     setImportMsg(null);
-    const fd = new FormData();
-    fd.append('file', importFile);
-    fetch('/api/apps/import', { method:'POST', headers:{'X-Groot-Key': apiKey}, body: fd })
-      .then(r => r.json())
-      .then(d => {
-        setImporting(false);
-        if (d.detail) {
-          setImportMsg({ ok: false, text: d.detail });
-          showToast(typeof d.detail === 'string' ? d.detail : JSON.stringify(d.detail), false);
-        } else {
-          const msg = '\u2713 ' + d.name + ' loaded \u2014 tools:' + d.tools_registered + ' pages:' + d.pages_registered;
-          setImportMsg({ ok: true, text: msg });
-          showToast(msg, true);
-          reload();
-        }
-      })
-      .catch(e => {
-        setImporting(false);
-        setImportMsg({ ok: false, text: e.message });
-        showToast(e.message, false);
-      });
-  };
-
-  const doImportBundle = () => {
-    if (!importBundleFile) return;
-    setImportingBundle(true);
-    const reader = new FileReader();
-    reader.onload = e => {
-      try {
-        JSON.parse(e.target.result); // validate JSON
-        fetch('/api/app-bundles', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json', 'X-Groot-Key': apiKey},
-          body: e.target.result,
+    if (ext === 'zip') {
+      const fd = new FormData();
+      fd.append('file', importFile);
+      fetch('/api/apps/import', { method:'POST', headers:{'X-Groot-Key': apiKey}, body: fd })
+        .then(r => r.json())
+        .then(d => {
+          setImporting(false);
+          if (d.detail) {
+            const msg = typeof d.detail === 'string' ? d.detail : JSON.stringify(d.detail);
+            setImportMsg({ ok: false, text: msg }); showToast(msg, false);
+          } else {
+            const msg = '\u2713 ' + d.name + ' loaded \u2014 tools:' + d.tools_registered + ' pages:' + d.pages_registered;
+            setImportMsg({ ok: true, text: msg }); showToast(msg, true);
+            setImportFile(null); reload();
+          }
         })
-          .then(r => r.json())
-          .then(d => {
-            setImportingBundle(false);
-            if (d.detail) {
-              showToast(typeof d.detail === 'string' ? d.detail : JSON.stringify(d.detail), false);
-            } else {
-              showToast('\u2713 ' + d.name + ' imported \u2014 ' + d.pages_imported + ' pages', true);
-              setImportBundleFile(null);
-              reload();
-            }
+        .catch(e => { setImporting(false); setImportMsg({ ok: false, text: e.message }); showToast(e.message, false); });
+    } else if (ext === 'json') {
+      const reader = new FileReader();
+      reader.onload = ev => {
+        try {
+          JSON.parse(ev.target.result);
+          fetch('/api/app-bundles', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'X-Groot-Key': apiKey},
+            body: ev.target.result,
           })
-          .catch(err => { setImportingBundle(false); showToast(err.message, false); });
-      } catch (err) {
-        setImportingBundle(false);
-        showToast('Invalid JSON: ' + err.message, false);
-      }
-    };
-    reader.readAsText(importBundleFile);
+            .then(r => r.json())
+            .then(d => {
+              setImporting(false);
+              if (d.detail) {
+                const msg = typeof d.detail === 'string' ? d.detail : JSON.stringify(d.detail);
+                setImportMsg({ ok: false, text: msg }); showToast(msg, false);
+              } else {
+                const msg = '\u2713 ' + d.name + ' imported \u2014 ' + d.pages_imported + ' pages';
+                setImportMsg({ ok: true, text: msg }); showToast(msg, true);
+                setImportFile(null); reload();
+              }
+            })
+            .catch(err => { setImporting(false); showToast(err.message, false); });
+        } catch (err) {
+          setImporting(false); showToast('Invalid JSON: ' + err.message, false);
+        }
+      };
+      reader.readAsText(importFile);
+    } else {
+      setImporting(false);
+      showToast('Use .zip for module apps or .json for multi-page bundles', false);
+    }
   };
 
   const keyDot = () => {
@@ -316,21 +317,21 @@ function Page() {
     srcPre:   { background:'#0d1117', border:'1px solid #30363d', borderRadius:6, padding:'1rem', fontSize:'.78rem', color:'#4ade80', whiteSpace:'pre-wrap', wordBreak:'break-all', overflow:'auto', flex:1 },
   };
 
-  const isSystemPage  = name => name.startsWith('groot-');
-  const isExamplePage = name => name.startsWith('_');
-  const appNameSet    = new Set(apps.map(a => a.name));
-  const ownerApp      = name => {
-    const idx = name.indexOf('-');
-    if (idx < 0) return null;
-    const prefix = name.slice(0, idx);
-    return appNameSet.has(prefix) ? prefix : null;
+  const isSystemPage = name => name.startsWith('groot-');
+
+  const filteredApps = webApps.filter(wa => {
+    if (!search) return true;
+    const q = search.toLowerCase();
+    return wa.name.toLowerCase().includes(q) || (wa.description || '').toLowerCase().includes(q);
+  });
+
+  const kindBadge = kind => {
+    if (kind === 'app_bundle')        return <span style={{display:'inline-block', padding:'.05rem .35rem', borderRadius:3, fontSize:'.65rem', fontWeight:600, background:'#1a1040', color:'#818cf8', marginRight:'.4rem'}}>module</span>;
+    if (kind === 'multi_page_bundle') return <span style={{display:'inline-block', padding:'.05rem .35rem', borderRadius:3, fontSize:'.65rem', fontWeight:600, background:'#0d2440', color:'#38bdf8', marginRight:'.4rem'}}>multi-page</span>;
+    return <span style={{display:'inline-block', padding:'.05rem .35rem', borderRadius:3, fontSize:'.65rem', fontWeight:600, background:'#21262d', color:'#6e7681', marginRight:'.4rem'}}>page</span>;
   };
 
-  const filteredPages = pages.filter(p => {
-    if (!pageSearch) return true;
-    const q = pageSearch.toLowerCase();
-    return p.name.toLowerCase().includes(q) || (p.description || '').toLowerCase().includes(q);
-  });
+  const appsCount = webApps.filter(a => a.kind !== 'page').length;
 
   const navArtifacts = tab => {
     window.history.pushState({}, '', '/artifacts?tab=' + tab);
@@ -347,7 +348,7 @@ function Page() {
       <style>{'@keyframes spin { to { transform: rotate(360deg) } }'}</style>
 
       {toast && (
-        <div style={{position:'fixed', bottom:24, right:24, zIndex:300, background:'#161b22', border:'1px solid ' + (toast.ok ? '#4ade80' : '#ff6b6b'), borderRadius:8, padding:'.75rem 1rem', color: toast.ok ? '#4ade80' : '#ff6b6b', fontSize:'.85rem', maxWidth:360, boxShadow:'0 4px 16px rgba(0,0,0,.5)'}}>
+        <div style={{position:'fixed', bottom:24, right:24, zIndex:300, background:'#161b22', border:'1px solid ' + (toast.ok === null ? '#6366f1' : toast.ok ? '#4ade80' : '#ff6b6b'), borderRadius:8, padding:'.75rem 1rem', color: toast.ok === null ? '#818cf8' : toast.ok ? '#4ade80' : '#ff6b6b', fontSize:'.85rem', maxWidth:360, boxShadow:'0 4px 16px rgba(0,0,0,.5)'}}>
           {toast.msg}
         </div>
       )}
@@ -370,29 +371,38 @@ function Page() {
       {confirmDelete && (
         <div style={s.overlay}>
           <div style={s.modal}>
-            <div style={{color:'#e2e8f0', marginBottom:'1rem', fontWeight:600}}>Delete app "{confirmDelete}"?</div>
+            <div style={{color:'#e2e8f0', marginBottom:'1rem', fontWeight:600}}>
+              Delete {confirmDelete.kind === 'app_bundle' ? 'app' : 'page'} "{confirmDelete.name}"?
+            </div>
             <div style={{color:'#8b949e', fontSize:'.85rem', marginBottom:'1.25rem'}}>
-              Removes all tools and pages. Force also deletes the directory on disk.
+              {confirmDelete.kind === 'app_bundle'
+                ? 'Unregisters all tools, removes its pages, and deletes the app directory.'
+                : 'This removes the page and its JSX from the store. The route will stop working immediately.'}
             </div>
             <div style={{display:'flex', gap:'.5rem', justifyContent:'flex-end'}}>
               <button style={s.btn} onClick={() => setConfirmDelete(null)}>Cancel</button>
-              <button style={s.btn} onClick={() => doDelete(confirmDelete, false)}>Delete</button>
-              <button style={s.btnRed} onClick={() => doDelete(confirmDelete, true)}>Force Delete</button>
+              {confirmDelete.kind === 'app_bundle' ? (
+                <button style={s.btnRed} onClick={() => doDelete(confirmDelete.name, true)}>Delete</button>
+              ) : (
+                <button style={s.btnRed} onClick={() => doDeletePage(confirmDelete.name)}>Delete</button>
+              )}
             </div>
           </div>
         </div>
       )}
 
-      {confirmDeletePage && (
+      {confirmDataExport && (
         <div style={s.overlay}>
           <div style={s.modal}>
-            <div style={{color:'#e2e8f0', marginBottom:'1rem', fontWeight:600}}>Delete page "{confirmDeletePage}"?</div>
+            <div style={{color:'#e2e8f0', marginBottom:'1rem', fontWeight:600}}>
+              Export "{confirmDataExport.name}" with data?
+            </div>
             <div style={{color:'#8b949e', fontSize:'.85rem', marginBottom:'1.25rem'}}>
-              This removes the page and its JSX from the store. The route will stop working immediately.
+              \u26a0 This export includes saved data (blobs). The archive may contain sensitive information. Only share with trusted recipients.
             </div>
             <div style={{display:'flex', gap:'.5rem', justifyContent:'flex-end'}}>
-              <button style={s.btn} onClick={() => setConfirmDeletePage(null)}>Cancel</button>
-              <button style={s.btnRed} onClick={() => doDeletePage(confirmDeletePage)}>Delete</button>
+              <button style={s.btn} onClick={() => setConfirmDataExport(null)}>Cancel</button>
+              <button style={s.btnGreen} onClick={() => { triggerDownload(confirmDataExport.url, confirmDataExport.filename); setConfirmDataExport(null); }}>Export + Data</button>
             </div>
           </div>
         </div>
@@ -412,181 +422,130 @@ function Page() {
             <div style={s.bigNum}>{state.schema_count}</div><div style={s.bigLabel}>Schemas</div>
           </div>
           <div style={{...s.statCard, cursor:'pointer'}} onClick={() => navArtifacts('events')} title="View events">
-            <div style={s.bigNum}>{state.artifact_count}</div><div style={s.bigLabel}>Artifacts</div>
+            <div style={s.bigNum}>{state.artifact_count}</div><div style={s.bigLabel}>Events</div>
           </div>
           <div style={s.statCard}>
             <div style={{...s.bigNum, fontSize:'1.3rem'}}>{fmtUptime(state.uptime_seconds)}</div>
             <div style={s.bigLabel}>Uptime</div>
           </div>
           <div style={s.statCard}>
-            <div style={s.bigNum}>{apps.length}</div><div style={s.bigLabel}>Apps</div>
+            <div style={s.bigNum}>{appsCount}</div><div style={s.bigLabel}>Apps</div>
           </div>
         </div>
       )}
 
       <div style={s.card}>
-        <div style={s.h2}>App Manager</div>
-        <div style={{color:'#8b949e', fontSize:'.75rem', marginBottom:'.75rem'}}>Format: .zip \u00b7 App module with tools + pages</div>
-
-        <div style={{display:'flex', gap:'.5rem', alignItems:'center', flexWrap:'wrap', marginBottom:'.5rem', paddingBottom:'1rem', borderBottom:'1px solid #21262d'}}>
-          <input type="file" accept=".zip" onChange={e => setImportFile(e.target.files[0])}
-            style={{color:'#8b949e', fontSize:'.85rem', flex:1, minWidth:180}} />
-          <div style={{display:'flex', alignItems:'center', gap:'.35rem'}}>
-            <span style={{color:'#8b949e', fontSize:'.8rem', whiteSpace:'nowrap'}}>API Key</span>
-            <input style={{...s.input, width:170}} type={showKey ? 'text' : 'password'} placeholder="Enter Groot API key"
-              value={apiKey} onChange={e => saveKey(e.target.value)}
-              title="Required for import/export. Find in your Groot config or terminal output." />
-            <button style={{...s.btn, marginLeft:0, padding:'.25rem .45rem'}} onClick={() => setShowKey(v => !v)}>
-              {showKey ? 'Hide' : 'Show'}
-            </button>
-            {keyDot()}
-          </div>
-          <button style={{...s.btnGreen, display:'flex', alignItems:'center'}} onClick={doImport} disabled={!importFile || importing}>
-            {importing && <span style={s.spinner}></span>}
-            {importing ? 'Installing\u2026' : 'Import ZIP'}
+        <div style={{display:'flex', alignItems:'center', gap:'.75rem', flexWrap:'wrap'}}>
+          <span style={{...s.h2, marginBottom:0}}>API Key</span>
+          {keyDot()}
+          <input style={{...s.input, flex:1, minWidth:140, maxWidth:280}} type={showKey ? 'text' : 'password'}
+            placeholder="Enter Groot API key" value={apiKey} onChange={e => saveKey(e.target.value)}
+            title="Required for import/export. Find in your Groot config or terminal output." />
+          <button style={{...s.btn, marginLeft:0, padding:'.25rem .45rem'}} onClick={() => setShowKey(v => !v)}>
+            {showKey ? 'Hide' : 'Show'}
           </button>
         </div>
+      </div>
+
+      <div style={s.card}>
+        <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'.75rem', flexWrap:'wrap', gap:'.5rem'}}>
+          <div style={{...s.h2, marginBottom:0}}>Available Web Apps</div>
+          <div style={{display:'flex', gap:'.5rem', alignItems:'center', flexWrap:'wrap'}}>
+            <input style={{...s.input, width:150, fontSize:'.78rem', padding:'.2rem .5rem'}}
+              placeholder="Search\u2026" value={search} onChange={e => setSearch(e.target.value)} />
+            <label style={{...s.btnGreen, cursor:'pointer', display:'inline-flex', alignItems:'center', marginLeft:0}}>
+              + Import
+              <input type="file" accept=".zip,.json" style={{display:'none'}}
+                onChange={e => { setImportFile(e.target.files[0] || null); setImportMsg(null); e.target.value = ''; }} />
+            </label>
+            {importFile && (
+              <>
+                <span style={{color:'#8b949e', fontSize:'.78rem', maxWidth:130, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}} title={importFile.name}>{importFile.name}</span>
+                <button style={{...s.btnGreen, display:'flex', alignItems:'center', marginLeft:0}} onClick={doImport} disabled={importing}>
+                  {importing && <span style={s.spinner}></span>}
+                  {importing ? 'Uploading\u2026' : 'Upload'}
+                </button>
+                <button style={{...s.btn, marginLeft:0}} onClick={() => setImportFile(null)}>\u00d7</button>
+              </>
+            )}
+          </div>
+        </div>
         {importMsg && (
-          <div style={{marginBottom:'.75rem', fontSize:'.82rem', color: importMsg.ok ? '#4ade80' : '#ff6b6b'}}>
+          <div style={{fontSize:'.82rem', color: importMsg.ok ? '#4ade80' : '#ff6b6b', marginBottom:'.5rem'}}>
             {importMsg.text}
           </div>
         )}
 
-        {apps.length === 0
-          ? <div style={{color:'#8b949e', fontSize:'.9rem'}}>No apps loaded.</div>
-          : apps.map(a => (
-              <div key={a.name} style={{...s.row, gap:'.75rem'}}>
-                <Dropdown items={[
-                  { label: 'Export ZIP',    onClick: () => triggerDownload('/api/apps/' + a.name + '/export', a.name + '.zip') },
-                  { label: 'Export + Data', onClick: () => triggerDownload('/api/apps/' + a.name + '/export?include_data=true', a.name + '-data.zip') },
-                  { label: 'Delete\u2026',  onClick: () => setConfirmDelete(a.name), danger: true },
-                ]} />
-                <div style={{display:'flex', alignItems:'center', flex:1, minWidth:0}}>
-                  <span style={s.badge(a.status === 'loaded')}>{a.status}</span>
-                  <span style={{color:'#e2e8f0', fontWeight:600, fontSize:'.9rem'}}>{a.name}</span>
-                  <span style={{color:'#8b949e', fontSize:'.78rem', marginLeft:'.5rem', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>
-                    {a.tools_count}t \u00b7 {a.pages_count}p{a.description ? ' \u00b7 ' + a.description : ''}
-                  </span>
-                </div>
-                {deleteStatus[a.name] && <span style={{color:'#8b949e', fontSize:'.75rem', flexShrink:0}}>{deleteStatus[a.name]}</span>}
+        {filteredApps.length === 0 ? (
+          <div style={{color:'#8b949e', fontSize:'.9rem'}}>
+            {search ? "No apps match '" + search + "'" : 'No web apps found. Import a .zip (module app) or .json (multi-page bundle).'}
+          </div>
+        ) : (
+          <>
+            <div style={{display:'flex', alignItems:'center', gap:'.75rem', paddingBottom:'.3rem', borderBottom:'1px solid #30363d', marginBottom:'.15rem'}}>
+              <div style={{width:74, flexShrink:0}}></div>
+              <div style={{flex:1, color:'#4a5568', fontSize:'.68rem', fontWeight:600, textTransform:'uppercase', letterSpacing:'.06em'}}>Name</div>
+              <div style={{display:'flex', gap:'1.25rem', flexShrink:0}}>
+                <span style={{color:'#4a5568', fontSize:'.68rem', fontWeight:600, textTransform:'uppercase', letterSpacing:'.06em', minWidth:40, textAlign:'right', cursor:'default'}} title="When this app was first registered">Created</span>
+                <span style={{color:'#4a5568', fontSize:'.68rem', fontWeight:600, textTransform:'uppercase', letterSpacing:'.06em', minWidth:50, textAlign:'right', cursor:'default'}} title="When the app source was last changed">Modified</span>
+                <span style={{color:'#4a5568', fontSize:'.68rem', fontWeight:600, textTransform:'uppercase', letterSpacing:'.06em', minWidth:50, textAlign:'right', cursor:'default'}} title="Last time this app was opened in the browser">Opened</span>
               </div>
-            ))
-        }
-      </div>
-
-      <div style={s.card}>
-        <div style={s.h2}>Multi-Page Apps</div>
-        <div style={{color:'#8b949e', fontSize:'.75rem', marginBottom:'.75rem'}}>Format: .json \u00b7 DB-registered multi-page apps (pages only, no Python tools)</div>
-
-        <div style={{display:'flex', gap:'.5rem', alignItems:'center', flexWrap:'wrap', marginBottom:'.5rem', paddingBottom:'1rem', borderBottom:'1px solid #21262d'}}>
-          <input type="file" accept=".json" onChange={e => setImportBundleFile(e.target.files[0])}
-            style={{color:'#8b949e', fontSize:'.85rem', flex:1, minWidth:180}} />
-          <button style={{...s.btnGreen, display:'flex', alignItems:'center'}} onClick={doImportBundle} disabled={!importBundleFile || importingBundle}>
-            {importingBundle && <span style={s.spinner}></span>}
-            {importingBundle ? 'Importing\u2026' : 'Import Bundle'}
-          </button>
-        </div>
-
-        {dbApps.length === 0
-          ? <div style={{color:'#8b949e', fontSize:'.9rem'}}>No multi-page apps registered. Use <code style={{background:'#0d1117', padding:'.1rem .3rem', borderRadius:3, fontSize:'.8rem'}}>create_app</code> to build one, or import a .json bundle above.</div>
-          : dbApps.map(a => (
-              <div key={a.name} style={{...s.row, gap:'.75rem'}}>
-                <div style={{display:'flex', alignItems:'center', flex:1, minWidth:0, gap:'.5rem'}}>
-                  <a href={'/apps/' + a.name + '/'} target="_blank" rel="noopener"
-                     style={{...s.link, fontWeight:600, fontSize:'.9rem'}}>{a.name}</a>
-                  <span style={{color:'#8b949e', fontSize:'.78rem'}}>{a.page_count} page{a.page_count !== 1 ? 's' : ''}</span>
-                  {a.description && <span style={{color:'#8b949e', fontSize:'.78rem', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>\u00b7 {a.description}</span>}
-                </div>
-                <button style={{...s.btn, color:'#4ade80', borderColor:'#4ade80'}}
-                  onClick={() => triggerDownload('/api/app-bundles/' + encodeURIComponent(a.name), a.name + '-bundle.json')}>
-                  Export Bundle
-                </button>
-              </div>
-            ))
-        }
-      </div>
-
-      <div style={s.card}>
-        <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'.75rem'}}>
-          <div style={s.h2}>Registered Pages</div>
-          <input
-            style={{...s.input, width:160, fontSize:'.78rem', padding:'.2rem .5rem'}}
-            placeholder="Search pages\u2026"
-            value={pageSearch}
-            onChange={e => setPageSearch(e.target.value)}
-          />
-        </div>
-
-        {/* System pages — collapsed by default (UX-3) */}
-        {(() => {
-          const sysPgs = filteredPages.filter(p => isSystemPage(p.name));
-          return sysPgs.length > 0 && (
-            <div style={{marginBottom:'.75rem'}}>
-              <button style={{...s.btn, marginLeft:0, fontSize:'.78rem'}} onClick={() => setSysExpanded(v => !v)}>
-                {sysExpanded ? '\u25be' : '\u25b8'} System pages ({sysPgs.length})
-              </button>
-              {sysExpanded && sysPgs.map(p => (
-                <div key={p.name} style={{...s.row, gap:'.75rem', flexWrap:'wrap', alignItems:'flex-start', paddingTop:'.5rem', paddingBottom:'.5rem'}}>
-                  <Dropdown items={[
-                    { label: 'Open',        onClick: () => { window.open('/apps/' + p.name, '_blank'); } },
-                    { label: 'View Source', onClick: () => openSource(p.name) },
-                  ]} />
-                  <div style={{flex:1, minWidth:0}}>
-                    <div style={{display:'flex', alignItems:'center', flexWrap:'wrap', gap:'.2rem'}}>
-                      <a href={'/apps/' + p.name} target="_blank" rel="noopener" style={{...s.link, wordBreak:'break-all'}}>{p.name}</a>
-                      <span style={s.tagSystem}>system</span>
-                    </div>
-                    <div style={{display:'flex', gap:'.5rem', alignItems:'center', marginTop:'.15rem'}}>
-                      <span style={{color:'#4a5568', fontStyle:'italic', fontSize:'.75rem', flex:1}}>{p.description || 'No description'}</span>
-                      <span style={{color:'#4a5568', fontSize:'.72rem', whiteSpace:'nowrap'}}>{fmtRelative(p.updated_at)}</span>
-                    </div>
-                  </div>
-                </div>
-              ))}
             </div>
-          );
-        })()}
-
-        {/* User pages (BUG 6 + UX-1 + UX-4) */}
-        {(() => {
-          const userPgs = filteredPages.filter(p => !isSystemPage(p.name));
-          if (userPgs.length === 0)
-            return <div style={{color:'#8b949e', fontSize:'.9rem'}}>{pageSearch ? "No pages match '" + pageSearch + "'" : 'No pages registered yet.'}</div>;
-          return userPgs.map(p => {
-            const isEx  = isExamplePage(p.name);
-            const owner = ownerApp(p.name);
-            const dropItems = [
-              { label: 'Open',        onClick: () => { window.open('/apps/' + p.name, '_blank'); } },
-              { label: 'View Source', onClick: () => openSource(p.name) },
-            ];
-            if (!owner) {
-              dropItems.push({ label: 'Export ZIP', onClick: () => triggerDownload('/api/pages/' + encodeURIComponent(p.name) + '/export', p.name + '.zip') });
-              dropItems.push({ label: 'Delete\u2026', onClick: () => setConfirmDeletePage(p.name), danger: true });
-            }
-            return (
-              <div key={p.name} style={{...s.row, gap:'.75rem', flexWrap:'wrap', alignItems:'flex-start', paddingTop:'.5rem', paddingBottom:'.5rem'}}>
-                <Dropdown items={dropItems} />
-                <div style={{flex:1, minWidth:0}}>
-                  <div style={{display:'flex', alignItems:'center', flexWrap:'wrap', gap:'.2rem'}}>
-                    <a href={'/apps/' + p.name} target="_blank" rel="noopener" style={{...s.link, wordBreak:'break-all'}}>{p.name}</a>
-                    {isEx && !owner && <span style={s.tagExample}>example</span>}
-                    {owner && <span style={{display:'inline-block', padding:'.05rem .35rem', borderRadius:3, fontSize:'.65rem', fontWeight:600, background:'#0d1a2d', color:'#6366f1', marginLeft:'.4rem', verticalAlign:'middle'}}>Managed by: {owner}</span>}
-                  </div>
-                  <div style={{display:'flex', gap:'.5rem', alignItems:'center', marginTop:'.15rem'}}>
-                    <div
-                      title={p.description || ''}
-                      style={{color: p.description ? '#8b949e' : '#4a5568', fontStyle: p.description ? 'normal' : 'italic', fontSize:'.75rem', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', flex:1}}
-                    >
-                      {p.description || 'No description'}
+            {filteredApps.map(wa => {
+              const isSystem = wa.kind === 'page' && isSystemPage(wa.name);
+              const dropItems = [
+                { label: 'Open', onClick: () => window.open(wa.url, '_blank') },
+              ];
+              if (wa.kind === 'page') {
+                dropItems.push({ label: 'View Source', onClick: () => openSource(wa.name) });
+                if (!isSystem) {
+                  dropItems.push({ label: 'Export App', onClick: () => triggerDownload('/api/pages/' + encodeURIComponent(wa.name) + '/export', wa.name + '.zip') });
+                  dropItems.push({ label: 'Export App + Data', onClick: () => setConfirmDataExport({name: wa.name, kind: 'page', url: '/api/pages/' + encodeURIComponent(wa.name) + '/export?include_data=true', filename: wa.name + '-data.zip'}) });
+                  dropItems.push({ label: 'Delete\u2026', onClick: () => setConfirmDelete({name: wa.name, kind: 'page'}), danger: true });
+                }
+              } else if (wa.kind === 'app_bundle') {
+                dropItems.push({ label: 'Export App',        onClick: () => triggerDownload('/api/apps/' + wa.name + '/export', wa.name + '.zip') });
+                dropItems.push({ label: 'Export App + Data', onClick: () => setConfirmDataExport({name: wa.name, kind: 'app_bundle', url: '/api/apps/' + wa.name + '/export?include_data=true', filename: wa.name + '-data.zip'}) });
+                dropItems.push({ label: 'Delete\u2026',      onClick: () => setConfirmDelete({name: wa.name, kind: 'app_bundle'}), danger: true });
+              } else if (wa.kind === 'multi_page_bundle') {
+                dropItems.push({ label: 'Export Bundle', onClick: () => triggerDownload('/api/app-bundles/' + encodeURIComponent(wa.name), wa.name + '-bundle.json') });
+              }
+              return (
+                <div key={wa.kind + ':' + wa.name} style={{...s.row, gap:'.75rem', flexWrap:'nowrap', alignItems:'center', paddingTop:'.5rem', paddingBottom:'.5rem'}}>
+                  <Dropdown items={dropItems} />
+                  <div style={{flex:1, minWidth:0}}>
+                    <div style={{display:'flex', alignItems:'center', flexWrap:'wrap', gap:'.25rem'}}>
+                      {kindBadge(wa.kind)}
+                      <a href={wa.url} target="_blank" rel="noopener" style={{...s.link, wordBreak:'break-all', fontWeight:600}}>{wa.name}</a>
+                      {wa.kind === 'app_bundle' && wa.status && <span style={s.badge(wa.status === 'loaded')}>{wa.status}</span>}
+                      {isSystem && <span style={s.tagSystem}>system</span>}
                     </div>
-                    <span style={{color:'#4a5568', fontSize:'.72rem', whiteSpace:'nowrap'}}>{fmtRelative(p.updated_at)}</span>
+                    <div style={{color: wa.description ? '#8b949e' : '#4a5568', fontStyle: wa.description ? 'normal' : 'italic', fontSize:'.75rem', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', marginTop:'.1rem'}}>
+                      {wa.description || (wa.kind === 'app_bundle' ? wa.tools_count + 't \u00b7 ' + wa.page_count + 'p'
+                        : wa.kind === 'multi_page_bundle' ? wa.page_count + ' page' + (wa.page_count !== 1 ? 's' : '')
+                        : 'No description')}
+                    </div>
+                    {deleteStatus[wa.name] && <div style={{color:'#8b949e', fontSize:'.75rem', marginTop:'.15rem'}}>{deleteStatus[wa.name]}</div>}
                   </div>
-                  {pageDeleteStatus[p.name] && <div style={{color:'#8b949e', fontSize:'.75rem', marginTop:'.15rem'}}>{pageDeleteStatus[p.name]}</div>}
+                  <div style={{display:'flex', gap:'1.25rem', alignItems:'center', flexShrink:0}}>
+                    <span style={{color:'#6e7681', fontSize:'.72rem', textAlign:'right', minWidth:40, whiteSpace:'nowrap'}}
+                          title={wa.created_at ? new Date(wa.created_at).toLocaleString() : 'Unknown'}>
+                      {wa.created_at ? fmtDate(wa.created_at) : '\u2014'}
+                    </span>
+                    <span style={{color:'#6e7681', fontSize:'.72rem', textAlign:'right', minWidth:50, whiteSpace:'nowrap'}}
+                          title={wa.updated_at ? new Date(wa.updated_at).toLocaleString() : 'Unknown'}>
+                      {wa.updated_at ? fmtRelative(wa.updated_at) : '\u2014'}
+                    </span>
+                    <span style={{color: wa.last_opened_at ? '#818cf8' : '#4a5568', fontSize:'.72rem', textAlign:'right', minWidth:50, whiteSpace:'nowrap'}}
+                          title={wa.last_opened_at ? new Date(wa.last_opened_at).toLocaleString() : 'Never opened'}>
+                      {wa.last_opened_at ? fmtRelative(wa.last_opened_at) : '\u2014'}
+                    </span>
+                  </div>
                 </div>
-              </div>
-            );
-          });
-        })()}
+              );
+            })}
+          </>
+        )}
       </div>
 
       {events.length > 0 && (
@@ -613,25 +572,55 @@ function Page() {
 _ARTIFACTS_JSX = """\
 function Page() {
   const [tab, setTab] = React.useState('pages');
-  const [data, setData] = React.useState({ blobs: [], schemas: [], recent_events: [] });
+  const [apiKey, setApiKey] = React.useState('');
+  const [blobs, setBlobs] = React.useState([]);
+  const [schemas, setSchemas] = React.useState([]);
+  const [events, setEvents] = React.useState([]);
   const [pages, setPages] = React.useState([]);
   const [selected, setSelected] = React.useState(null);
+  const [blobContent, setBlobContent] = React.useState({});
+  const [schemaDefs, setSchemaDefs] = React.useState({});
   const [loading, setLoading] = React.useState(true);
   const [compact, setCompact] = React.useState(false);
   const [sourceModal, setSourceModal] = React.useState(null);
+  const [query, setQuery] = React.useState('');
+
+  const fmtRelative = iso => {
+    if (!iso) return '\u2014';
+    const diff = Date.now() - new Date(iso).getTime();
+    const sec = Math.floor(diff / 1000);
+    if (sec < 60) return sec + 's ago';
+    const min = Math.floor(sec / 60);
+    if (min < 60) return min + 'm ago';
+    const hr = Math.floor(min / 60);
+    if (hr < 24) return hr + 'h ago';
+    return Math.floor(hr / 24) + 'd ago';
+  };
+
+  const loadAll = key => {
+    const headers = { 'X-Groot-Key': key };
+    Promise.all([
+      fetch('/api/system/artifacts', { headers }).then(r => r.ok ? r.json() : null),
+      fetch('/api/pages').then(r => r.ok ? r.json() : []),
+    ])
+      .then(([artifacts, pageList]) => {
+        if (artifacts) {
+          setBlobs(artifacts.blobs || []);
+          setSchemas(artifacts.schemas || []);
+          setEvents(artifacts.recent_events || []);
+        }
+        setPages(pageList || []);
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+  };
 
   React.useEffect(() => {
     const m = new URLSearchParams(window.location.search).get('tab');
     if (m) setTab(m);
-    Promise.all([
-      fetch('/api/system/artifacts').then(r => r.ok ? r.json() : null),
-      fetch('/api/pages').then(r => r.ok ? r.json() : []),
-    ])
-      .then(([artifacts, pageList]) => {
-        if (artifacts) setData(artifacts);
-        setPages(pageList || []);
-        setLoading(false);
-      })
+    fetch('/api/config')
+      .then(r => r.json())
+      .then(cfg => { setApiKey(cfg.api_key); loadAll(cfg.api_key); })
       .catch(() => setLoading(false));
   }, []);
 
@@ -641,6 +630,34 @@ function Page() {
       .then(r => r.text())
       .then(src => setSourceModal({ name, src, loading: false }))
       .catch(() => setSourceModal({ name, src: '(failed to load source)', loading: false }));
+  };
+
+  const inspectBlob = key => {
+    if (selected === key) { setSelected(null); return; }
+    setSelected(key);
+    if (blobContent[key] !== undefined) return;
+    fetch('/api/tools/read_blob', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Groot-Key': apiKey },
+      body: JSON.stringify({ key }),
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then(res => setBlobContent(bc => ({ ...bc, [key]: res ? (res.data || '(empty)') : '(failed to load)' })))
+      .catch(() => setBlobContent(bc => ({ ...bc, [key]: '(error)' })));
+  };
+
+  const inspectSchema = name => {
+    if (selected === name) { setSelected(null); return; }
+    setSelected(name);
+    if (schemaDefs[name] !== undefined) return;
+    fetch('/api/tools/get_schema', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Groot-Key': apiKey },
+      body: JSON.stringify({ name }),
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then(res => setSchemaDefs(sd => ({ ...sd, [name]: res ? res.definition : {} })))
+      .catch(() => setSchemaDefs(sd => ({ ...sd, [name]: {} })));
   };
 
   const s = {
@@ -660,11 +677,14 @@ function Page() {
     overlay:  { position:'fixed', inset:0, background:'rgba(0,0,0,.6)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:100 },
     srcModal: { background:'#161b22', border:'1px solid #30363d', borderRadius:8, padding:'1.5rem', width:'min(90vw, 780px)', maxHeight:'80vh', display:'flex', flexDirection:'column', gap:'1rem' },
     srcPre:   { background:'#0d1117', border:'1px solid #30363d', borderRadius:6, padding:'1rem', fontSize:'.78rem', color:'#4ade80', whiteSpace:'pre-wrap', wordBreak:'break-all', overflow:'auto', flex:1 },
+    searchBox:{ width:'100%', padding:'.4rem .7rem', background:'#0d1117', border:'1px solid #30363d', borderRadius:6, color:'#e2e8f0', fontSize:'.85rem', marginBottom:'.75rem', boxSizing:'border-box' },
   };
 
-  const blobs   = data.blobs || [];
-  const schemas = data.schemas || [];
-  const events  = data.recent_events || [];
+  const q = query.toLowerCase();
+  const filteredPages   = pages.filter(p => !q || p.name.toLowerCase().includes(q) || (p.description||'').toLowerCase().includes(q));
+  const filteredBlobs   = blobs.filter(b => !q || b.key.toLowerCase().includes(q) || b.content_type.toLowerCase().includes(q));
+  const filteredSchemas = schemas.filter(sc => !q || sc.name.toLowerCase().includes(q));
+  const filteredEvents  = events.filter(e => !q || e.message.toLowerCase().includes(q) || e.level.toLowerCase().includes(q));
 
   if (loading) return <div style={{color:'#8b949e', padding:'3rem 0', textAlign:'center'}}>Loading artifacts\u2026</div>;
 
@@ -688,11 +708,18 @@ function Page() {
       )}
 
       <div style={s.tabs}>
-        <button style={tab === 'pages'   ? s.tabA : s.tab} onClick={() => { setTab('pages');   setSelected(null); }}>Pages ({pages.length})</button>
-        <button style={tab === 'blobs'   ? s.tabA : s.tab} onClick={() => { setTab('blobs');   setSelected(null); }}>Blobs ({blobs.length})</button>
-        <button style={tab === 'schemas' ? s.tabA : s.tab} onClick={() => { setTab('schemas'); setSelected(null); }}>Schemas ({schemas.length})</button>
-        <button style={tab === 'events'  ? s.tabA : s.tab} onClick={() => { setTab('events');  setSelected(null); }}>Events ({events.length})</button>
+        <button style={tab === 'pages'   ? s.tabA : s.tab} onClick={() => { setTab('pages');   setSelected(null); setQuery(''); }}>Pages ({pages.length})</button>
+        <button style={tab === 'blobs'   ? s.tabA : s.tab} onClick={() => { setTab('blobs');   setSelected(null); setQuery(''); }}>Blobs ({blobs.length})</button>
+        <button style={tab === 'schemas' ? s.tabA : s.tab} onClick={() => { setTab('schemas'); setSelected(null); setQuery(''); }}>Schemas ({schemas.length})</button>
+        <button style={tab === 'events'  ? s.tabA : s.tab} onClick={() => { setTab('events');  setSelected(null); setQuery(''); }}>Events ({events.length})</button>
       </div>
+
+      <input
+        style={s.searchBox}
+        placeholder={'Search ' + tab + '\u2026'}
+        value={query}
+        onChange={e => { setQuery(e.target.value); setSelected(null); }}
+      />
 
       {tab === 'pages' && (
         <div>
@@ -701,22 +728,22 @@ function Page() {
               {compact ? 'Card view' : 'Compact view'}
             </button>
           </div>
-          {pages.length === 0
-            ? <div style={s.empty}>No pages registered.</div>
+          {filteredPages.length === 0
+            ? <div style={s.empty}>{query ? 'No matching pages.' : 'No pages registered.'}</div>
             : compact
               ? (
                 <div style={{background:'#161b22', border:'1px solid #30363d', borderRadius:8, overflow:'hidden'}}>
-                  {pages.map((p, i) => (
-                    <div key={p.name} style={{display:'flex', alignItems:'center', gap:'.75rem', padding:'.5rem 1rem', borderBottom: i < pages.length - 1 ? '1px solid #21262d' : 'none', fontSize:'.85rem'}}>
+                  {filteredPages.map((p, i) => (
+                    <div key={p.name} style={{display:'flex', alignItems:'center', gap:'.75rem', padding:'.5rem 1rem', borderBottom: i < filteredPages.length - 1 ? '1px solid #21262d' : 'none', fontSize:'.85rem'}}>
                       <a href={'/apps/' + p.name} target="_blank" rel="noopener" style={s.link}>{p.name}</a>
                       <span style={{color:'#8b949e', flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', fontSize:'.78rem'}} title={p.description || ''}>{p.description || <em style={{color:'#4a5568'}}>No description</em>}</span>
-                      <span style={{color:'#4a5568', fontSize:'.75rem', whiteSpace:'nowrap'}}>{p.created_at || ''}</span>
+                      <span title={p.updated_at ? new Date(p.updated_at).toLocaleString() : ''} style={{color:'#4a5568', fontSize:'.75rem', whiteSpace:'nowrap'}}>{fmtRelative(p.updated_at)}</span>
                       <button style={{...s.btn, padding:'.15rem .5rem', fontSize:'.75rem', color:'#8b949e'}} onClick={() => openSource(p.name)}>Source</button>
                     </div>
                   ))}
                 </div>
               )
-              : pages.map(p => (
+              : filteredPages.map(p => (
                   <div key={p.name} style={s.card}>
                     <div style={s.row}>
                       <div style={{display:'flex', flexDirection:'column', gap:'.2rem', flex:1, minWidth:0}}>
@@ -728,7 +755,7 @@ function Page() {
                           {p.description || 'No description'}
                         </span>
                       </div>
-                      <span style={{color:'#8b949e', fontSize:'.75rem', whiteSpace:'nowrap', marginLeft:'1rem'}}>{p.created_at || ''}</span>
+                      <span title={p.updated_at ? new Date(p.updated_at).toLocaleString() : ''} style={{color:'#8b949e', fontSize:'.75rem', whiteSpace:'nowrap', marginLeft:'1rem'}}>{fmtRelative(p.updated_at)}</span>
                     </div>
                     <div style={{display:'flex', gap:'.5rem', marginTop:'.5rem'}}>
                       <button style={{...s.btn, color:'#6366f1', borderColor:'#6366f1'}} onClick={() => { window.open('/apps/' + p.name, '_blank'); }}>Open</button>
@@ -742,19 +769,20 @@ function Page() {
 
       {tab === 'blobs' && (
         <div>
-          {blobs.length === 0
-            ? <div style={s.empty}>No blobs stored.</div>
-            : blobs.map(b => (
+          {filteredBlobs.length === 0
+            ? <div style={s.empty}>{query ? 'No matching blobs.' : 'No blobs stored.'}</div>
+            : filteredBlobs.map(b => (
                 <div key={b.key} style={s.card}>
                   <div style={s.row}>
                     <span style={s.key}>{b.key}</span>
-                    <span style={s.meta}>{b.content_type} \u00b7 {b.size_bytes}B \u00b7 {b.created_at}</span>
+                    <span style={s.meta}>{b.content_type} \u00b7 {b.size_bytes}B \u00b7 <span title={b.created_at ? new Date(b.created_at).toLocaleString() : ''}>{fmtRelative(b.created_at)}</span></span>
                   </div>
                   {selected === b.key
-                    ? <div><pre style={s.pre}>{b.data || '(content not loaded \u2014 use /api/tools/read_blob)'}</pre>
+                    ? <div>
+                        <pre style={s.pre}>{blobContent[b.key] !== undefined ? blobContent[b.key] : 'Loading\u2026'}</pre>
                         <button onClick={() => setSelected(null)} style={{...s.btn, color:'#e2e8f0', marginTop:'.5rem'}}>Close</button>
                       </div>
-                    : <button onClick={() => setSelected(b.key)} style={{...s.btn, marginTop:'.5rem'}}>Inspect</button>
+                    : <button onClick={() => inspectBlob(b.key)} style={{...s.btn, marginTop:'.5rem'}}>Inspect</button>
                   }
                 </div>
               ))
@@ -764,19 +792,20 @@ function Page() {
 
       {tab === 'schemas' && (
         <div>
-          {schemas.length === 0
-            ? <div style={s.empty}>No schemas defined.</div>
-            : schemas.map(sc => (
+          {filteredSchemas.length === 0
+            ? <div style={s.empty}>{query ? 'No matching schemas.' : 'No schemas defined.'}</div>
+            : filteredSchemas.map(sc => (
                 <div key={sc.name} style={s.card}>
                   <div style={s.row}>
                     <span style={s.key}>{sc.name}</span>
-                    <span style={s.meta}>{sc.created_at}</span>
+                    <span style={s.meta}><span title={sc.created_at ? new Date(sc.created_at).toLocaleString() : ''}>{fmtRelative(sc.created_at)}</span></span>
                   </div>
                   {selected === sc.name
-                    ? <div><pre style={s.pre}>{JSON.stringify(sc.definition || {}, null, 2)}</pre>
+                    ? <div>
+                        <pre style={s.pre}>{schemaDefs[sc.name] !== undefined ? JSON.stringify(schemaDefs[sc.name], null, 2) : 'Loading\u2026'}</pre>
                         <button onClick={() => setSelected(null)} style={{...s.btn, color:'#e2e8f0', marginTop:'.5rem'}}>Close</button>
                       </div>
-                    : <button onClick={() => setSelected(sc.name)} style={{...s.btn, marginTop:'.5rem'}}>View Schema</button>
+                    : <button onClick={() => inspectSchema(sc.name)} style={{...s.btn, marginTop:'.5rem'}}>View Schema</button>
                   }
                 </div>
               ))
@@ -786,13 +815,13 @@ function Page() {
 
       {tab === 'events' && (
         <div>
-          {events.length === 0
-            ? <div style={s.empty}>No events logged.</div>
-            : events.map(e => (
+          {filteredEvents.length === 0
+            ? <div style={s.empty}>{query ? 'No matching events.' : 'No events logged.'}</div>
+            : filteredEvents.map(e => (
                 <div key={e.id} style={{...s.row, alignItems:'flex-start'}}>
                   <span style={{color: s.levelColor(e.level), marginRight:'.5rem', fontWeight:600, minWidth:50}}>[{e.level}]</span>
                   <span style={{color:'#e2e8f0', flex:1}}>{e.message}</span>
-                  <span style={{color:'#8b949e', fontSize:'.75rem', marginLeft:'1rem', whiteSpace:'nowrap'}}>{e.timestamp}</span>
+                  <span title={e.timestamp ? new Date(e.timestamp).toLocaleString() : ''} style={{color:'#8b949e', fontSize:'.75rem', marginLeft:'1rem', whiteSpace:'nowrap'}}>{fmtRelative(e.timestamp)}</span>
                 </div>
               ))
           }

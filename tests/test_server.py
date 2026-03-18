@@ -127,6 +127,29 @@ def test_upsert_page_update(client, auth_headers):
     assert resp.json()["name"] == "ups2"
 
 
+def test_list_web_apps(client, auth_headers):
+    client.post("/api/tools/create_page", json={"name": "mypage", "jsx_code": "<div/>"}, headers=auth_headers)
+    resp = client.get("/api/web-apps")
+    assert resp.status_code == 200
+    items = resp.json()
+    assert isinstance(items, list)
+    names = [a["name"] for a in items]
+    assert "mypage" in names
+    page_item = next(a for a in items if a["name"] == "mypage")
+    assert page_item["kind"] == "page"
+    assert "url" in page_item
+
+
+def test_web_apps_includes_bundles(client, auth_headers):
+    client.post("/api/tools/create_app", json={"name": "webapp", "description": "Test"}, headers=auth_headers)
+    resp = client.get("/api/web-apps")
+    assert resp.status_code == 200
+    items = resp.json()
+    bundle = next((a for a in items if a["name"] == "webapp"), None)
+    assert bundle is not None
+    assert bundle["kind"] == "multi_page_bundle"
+
+
 def test_delete_page(client, auth_headers):
     client.post("/api/tools/create_page", json={"name": "gone", "jsx_code": "<div/>"}, headers=auth_headers)
     resp = client.post("/api/tools/delete_page", json={"name": "gone"}, headers=auth_headers)

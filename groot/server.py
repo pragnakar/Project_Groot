@@ -127,7 +127,7 @@ async def lifespan(app: FastAPI):
     # Mount page server routes + app discovery routes (idempotent)
     _dynamic_paths = {
         "/api/pages", "/api/pages/{name}/source", "/api/pages/{name}/meta",
-        "/api/pages/{name}/export",
+        "/api/pages/{name}/export", "/api/pages/{name}/store",
         "/api/apps", "/api/apps/{name}", "/api/apps/{name}/health",
         "/api/apps/import",
         "/api/app-pages/{app_name}/{page_name}/source",
@@ -244,7 +244,22 @@ async def shell_artifacts():
 
 
 @app.get("/apps/{path:path}")
-async def shell_apps(path: str):
+async def shell_apps(path: str, request: Request, store: ArtifactStore = Depends(get_store)):
+    from datetime import datetime, timezone
+    primary = path.split("/")[0]
+    if primary:
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        loaded_apps: dict = getattr(request.app.state, "loaded_apps", {})
+        if primary in loaded_apps:
+            # Module app — track in-memory (no DB row for module apps)
+            loaded_apps[primary]["last_opened_at"] = now
+        elif "/" in path:
+            # Sub-path present → multi-page app; touch the app DB row
+            await store.touch_app(primary)
+        else:
+            # Standalone page or multi-page app root without trailing slash
+            if not await store.touch_page(primary):
+                await store.touch_app(primary)
     return FileResponse(_SHELL_DIR / "index.html")
 
 
@@ -557,6 +572,110 @@ async def import_app_bundle(
     host = settings.GROOT_HOST if settings.GROOT_HOST != "0.0.0.0" else "localhost"
     url = f"http://{host}:{settings.GROOT_PORT}/apps/{body.name}/"
     return AppBundleImportResult(name=body.name, pages_imported=len(body.pages), url=url)
+
+
+# ---------------------------------------------------------------------------
+# Public blob read — makes the URL returned by write_blob actually resolve
+# ---------------------------------------------------------------------------
+
+@app.get("/blobs/{key:path}")
+async def read_blob_public(key: str, store: ArtifactStore = Depends(get_store)):
+    """Return raw blob content with its stored Content-Type.
+
+    Reads are unauthenticated — pages can fetch their own data without needing
+    /api/config. Writes still require X-Groot-Key.
+    """
+    try:
+        blob = await store.read_blob(key)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Blob not found: {key!r}")
+    return Response(content=blob.data, media_type=blob.content_type)
+
+
+# ---------------------------------------------------------------------------
+# Unified web-apps list — merges module apps, DB bundles, and pages
+# ---------------------------------------------------------------------------
+
+@app.get("/api/web-apps")
+async def list_web_apps(request: Request, store: ArtifactStore = Depends(get_store)) -> list[dict]:
+    """Unified list of all web apps: module apps, DB app bundles, and individual pages.
+
+    Returns entries with a `kind` field:
+      'app_bundle'       — loaded Python module app (has tools)
+      'multi_page_bundle' — DB-registered multi-page app (pages only, no tools)
+      'page'             — individual registered page
+
+    Pages whose name-prefix matches a loaded module app are excluded from the
+    'page' list; they are implicitly grouped under their app_bundle entry.
+    """
+    loaded_apps: dict = getattr(request.app.state, "loaded_apps", {})
+    registry = request.app.state.registry
+    all_pages = await store.list_pages()
+    app_name_set = set(loaded_apps.keys())
+
+    result = []
+
+    # 1. Module apps (kind: app_bundle)
+    for name, entry in loaded_apps.items():
+        meta = entry.get("meta", {})
+        status = entry.get("status", "error")
+        app_tools = registry.list_tools(namespace=name) if status == "loaded" else []
+        app_pages = [p for p in all_pages if p.name.startswith(f"{name}-")]
+        # Derive timestamps from associated pages (module apps have no DB row)
+        if app_pages:
+            created_at = min(p.created_at for p in app_pages)
+            updated_at = max(p.updated_at for p in app_pages)
+        else:
+            created_at = ""
+            updated_at = ""
+        result.append({
+            "kind": "app_bundle",
+            "name": name,
+            "description": meta.get("description", ""),
+            "url": f"/apps/{name}/",
+            "status": status,
+            "tools_count": len(app_tools),
+            "page_count": len(app_pages),
+            "created_at": created_at,
+            "updated_at": updated_at,
+            "last_opened_at": entry.get("last_opened_at", None),
+        })
+
+    # 2. DB multi-page apps (kind: multi_page_bundle)
+    db_apps = await store.list_apps()
+    for a in db_apps:
+        result.append({
+            "kind": "multi_page_bundle",
+            "name": a["name"],
+            "description": a.get("description", ""),
+            "url": "/apps/" + a["name"] + "/",
+            "status": "",
+            "tools_count": 0,
+            "page_count": a.get("page_count", 0),
+            "created_at": a.get("created_at", ""),
+            "updated_at": a.get("updated_at", ""),
+            "last_opened_at": a.get("last_opened_at", None),
+        })
+
+    # 3. Individual pages — exclude those owned by loaded module apps
+    for p in all_pages:
+        idx = p.name.find("-")
+        if idx >= 0 and p.name[:idx] in app_name_set:
+            continue  # owned by a module app — already represented above
+        result.append({
+            "kind": "page",
+            "name": p.name,
+            "description": p.description or "",
+            "url": f"/apps/{p.name}",
+            "status": "",
+            "tools_count": 0,
+            "page_count": 1,
+            "created_at": p.created_at,
+            "updated_at": p.updated_at,
+            "last_opened_at": p.last_opened_at,
+        })
+
+    return result
 
 
 # ---------------------------------------------------------------------------

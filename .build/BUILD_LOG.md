@@ -273,9 +273,9 @@ Notable:
 
 ---
 
-2026-03-18 | v0.3.0 post-release fixes + multi-page app feature — complete
+2026-03-18 | v0.3.0-session-2 | post-release fixes + multi-page JSON bundles — complete
 ---
-Context: v0.3.0 shipped. Series of bug fixes and new features added in same session.
+Context: v0.3.0 shipped (SHA c8a86e8, 243 tests). Series of bug fixes and the multi-page JSON bundle feature added in a follow-up session.
 
 Fixes:
   groot/__main__.py:
@@ -335,3 +335,156 @@ Notable:
   - Layout JSX receives children prop: function Layout({children}){return <div>{children}</div>;}
   - Navigation inside app pages uses plain <a href="/apps/myapp/clock"> — no hash tricks
   - 19 core tools total (was 15)
+
+---
+
+2026-03-18 | v0.3.0-session-3 | dual export, last_opened_at, unified web-apps, dashboard UX — complete
+---
+Context: v0.3.0-session-2 complete (SHA 7f638fa, 243 tests). Full session of new features and UX improvements.
+
+Work:
+
+  groot/artifact_store.py:
+    - Schema migrations (idempotent try/except ALTER TABLE): last_opened_at TEXT on pages + apps tables
+    - touch_page(name) / touch_app(name): UPDATE last_opened_at = now, return rowcount > 0
+    - list_apps(): added updated_at + last_opened_at to SELECT; page_count index shifted [3] → [5]
+    - update_page / get_page / list_pages / upsert_page: pass last_opened_at through to models
+
+  groot/models.py:
+    - PageResult + PageMeta: added last_opened_at: str | None = None
+
+  groot/server.py:
+    - GET /apps/{path:path}: records access time — module apps → loaded_apps dict (in-memory),
+      multi-page apps → store.touch_app(), standalone pages → touch_page() with touch_app() fallback
+    - GET /api/web-apps: unified endpoint returning all three kinds (standalone pages, module apps,
+      app_bundles) each with created_at, updated_at, last_opened_at; module app timestamps derived
+      from min/max of associated {name}-* pages
+
+  groot/page_server.py:
+    - GET /api/pages/{name}/export: new manifest-based ZIP format — manifest.json at root,
+      pages/{name}.jsx, optional blobs/ directory when ?include_data=true
+    - Manifest schema: {groot_version, exported_at, name, description, kind:"page", pages[], blobs[]}
+    - GET /api/pages/{name}/store + PUT /api/pages/{name}/store: blob namespace endpoints for pages
+
+  groot/app_routes.py:
+    - export_app(): replaced _export_meta.json/_export_pages.json/_export_blobs.json with
+      manifest.json (kind:"module_app") + blobs/ directory
+    - import_app(): refactored into 4-path router:
+        PATH A — manifest.json at root → kind:"page" restores page+blobs and returns immediately;
+                                          kind:"module_app" pre-reads blobs, extracts app dir, falls
+                                          through to hot-load
+        PATH B — bare .jsx files → legacy page import (unchanged)
+        PATH C — other bare files → 400 error
+        PATH D — no manifest, no bare files → legacy module app (unchanged)
+      Blob restore executes after hot-load for PATH A module_app + PATH D
+
+  groot/builtin_pages.py:
+    - fmtDate(iso): "18 Mar" absolute short format for creation dates
+    - fmtRelative(iso): "4d ago" relative format for modified/opened dates
+    - Three-column timestamp layout in Available Web Apps: Created / Modified / Opened
+      with column headers, hover tooltips (full datetime), and relative/absolute display
+    - confirmDataExport state {name, kind, url, filename}: confirmation modal before data export
+    - triggerDownload: shows "Preparing export…" loading toast (ok=null, indigo) before fetch;
+      derives filename from Content-Disposition header
+    - Toast render: ok===null → indigo (#6366f1 / #818cf8) for neutral/info state
+    - Actions per kind: page + app_bundle get "Export App" + "Export App + Data" (→ modal);
+      multi_page_bundle retains "Export Bundle" unchanged
+    - Fixed \s regex escape: replaced /[\s]/ with /[\x20\t]/ to silence SyntaxWarning
+
+  tests/:
+    - test_page_server.py: 3 new tests — manifest present, include_data blobs, roundtrip restore
+    - test_export_app.py: 4 tests updated to match new manifest.json + blobs/ ZIP format
+    - test_server.py: updated for unified /api/web-apps response shape
+
+Result:
+  Branch: main @ SHA (pending commit)
+  Full suite: 266/266 passed — zero failures, zero warnings
+Notable:
+  - Manifest-based import: manifest.json is a "bare file" (no /), checked first before bare-jsx path
+  - Module app last_opened_at lives in loaded_apps dict — resets on server restart (intentional)
+  - Module app timestamps in /api/web-apps derived from associated {name}-* pages (no DB row)
+  - Touch routing edge case: /apps/myapp (no slash) tries touch_page first, touch_app as fallback
+
+---
+
+2026-03-18 | v0.3.0-session-3 | dual export, last_opened_at, unified web-apps — uncommitted
+---
+Context: v0.3.0-session-2 complete (SHA 7f638fa, 266 tests after this session). Series of feature additions building on the multi-page JSON bundle work.
+
+Work:
+  Dual Export (manifest-based ZIP):
+    groot/page_server.py:
+      - page_export route updated: new ?include_data=true param, ZIP structure changed to
+        manifest.json + pages/{name}.jsx + optional blobs/ directory
+      - manifest.json: {groot_version, exported_at, name, description, kind:"page", pages[], blobs[]}
+      - Removed duplicate import json as _json; added datetime import
+      - Added GET/PUT /api/pages/{name}/store endpoints (blob store proxy for page-scoped data)
+    groot/app_routes.py:
+      - export_app: replaced _export_meta.json/_export_pages.json/_export_blobs.json with
+        manifest.json at ZIP root (kind:"module_app") + blobs/ directory
+      - import_app: complete refactor into 4 routing paths:
+          PATH A: manifest.json present → dispatch by kind (page or module_app)
+          PATH B: bare .jsx files → legacy page import (return immediately)
+          PATH C: other bare files → error
+          PATH D: no manifest, no bare files → legacy module app (full dir extraction)
+      - Blob restoration after hot-load for PATH A module_app
+
+  last_opened_at tracking:
+    groot/artifact_store.py:
+      - Schema migrations: ALTER TABLE pages/apps ADD COLUMN last_opened_at TEXT (idempotent try/except)
+      - Updated update_page, get_page, list_pages, upsert_page to carry last_opened_at field
+      - Added touch_page(name) → bool: UPDATE pages SET last_opened_at = now WHERE name = ?
+      - Updated list_apps(): added updated_at and last_opened_at to SELECT; page_count index shifted
+      - Added touch_app(name) → bool: same pattern for apps table
+    groot/models.py:
+      - last_opened_at: str | None = None added to PageResult and PageMeta
+    groot/server.py:
+      - GET /apps/{path:path}: records access time on every browser visit
+          Module apps → in-memory loaded_apps[name]["last_opened_at"]
+          Multi-page apps (/apps/name/...) → store.touch_app(primary)
+          Standalone pages → store.touch_page(primary) with touch_app fallback
+
+  Unified /api/web-apps endpoint:
+    groot/server.py:
+      - GET /api/web-apps: returns three kinds (page, app_bundle, multi_page_bundle) normalized
+      - All three kinds return created_at, updated_at, last_opened_at
+      - Module apps derive created_at/updated_at from min/max of {name}-* pages in pages table
+
+  Dashboard timestamp columns:
+    groot/builtin_pages.py:
+      - fmtDate(iso): absolute short format → "18 Mar"
+      - fmtRelative(iso): relative format → "4d ago"
+      - Column header row: Created / Modified / Opened with tooltip on each
+      - Each row: three right-aligned timestamp columns (fmtDate, fmtRelative, fmtRelative or —)
+      - All timestamps have title={new Date(wa.xxx).toLocaleString()} for ISO on hover
+
+  Dual Export UI in Dashboard:
+      - confirmDataExport state: {name, kind, url, filename}
+      - triggerDownload: shows "Preparing export…" loading toast (ok=null, indigo) before fetch
+      - Filename derived from Content-Disposition response header
+      - Toast render: handles ok === null → indigo color
+      - Confirmation modal with ⚠ warning before data export
+      - Page actions: "Export App" (plain) + "Export App + Data" (→ confirmation modal)
+      - App bundle actions: same two options
+
+  Tests:
+    tests/test_page_server.py:
+      - test_page_export_contains_manifest: verifies manifest.json + pages/{name}.jsx in ZIP
+      - test_page_export_with_data_includes_blobs: verifies ?include_data=true adds blobs
+      - test_page_export_with_data_roundtrip: export+data → delete → import → verify restored
+    tests/test_export_app.py:
+      - Updated 4 tests to match new manifest.json + blobs/ format (removed old _export_*.json checks)
+
+Result:
+  Branch: main (uncommitted changes)
+  Full suite: 266/266 passed — zero failures, zero warnings
+  SHA: HEAD at 7f638fa (pre-commit)
+Notable:
+  - manifest.json at ZIP root uses "bare file" position — import routing checks manifest first
+    before treating bare files as legacy .jsx (routing order matters)
+  - \s in JS regex inside Python string → SyntaxWarning; fixed with \x20\t literal characters
+  - Module app last_opened_at is session-local (in-memory dict); resets on server restart — intentional
+  - list_apps() column index shift (updated_at, last_opened_at added → page_count moved [3]→[5])
+Next: Commit session-3 work. Address Artifact Browser bug (groot-artifacts fetches /api/system/artifacts
+      without auth header → all tabs except Pages show empty).
+Evidence: pytest 266 passed (local).

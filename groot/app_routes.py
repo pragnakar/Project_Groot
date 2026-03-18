@@ -8,6 +8,7 @@ import re
 import shutil
 import sys
 import zipfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
@@ -226,62 +227,164 @@ def get_app_routes() -> APIRouter:
         if not zipfile.is_zipfile(io.BytesIO(raw)):
             raise HTTPException(status_code=400, detail="Uploaded file is not a valid ZIP archive.")
 
+        app_name: str = ""
+        blobs_to_restore: list[tuple[str, str, str]] = []
+
         with zipfile.ZipFile(io.BytesIO(raw)) as zf:
             names = zf.namelist()
-
-            # 3. Detect app name from top-level directory
             top_dirs = {n.split("/")[0] for n in names if "/" in n}
             bare_files = [n for n in names if "/" not in n]
-            if bare_files:
+
+            # --- PATH A: manifest.json at root → route by kind ---
+            if "manifest.json" in bare_files:
+                manifest = json.loads(zf.read("manifest.json").decode("utf-8"))
+                kind = manifest.get("kind", "")
+                export_name = manifest.get("name", "")
+
+                if kind == "page":
+                    # Restore page JSX from pages/ directory
+                    pages_list = manifest.get("pages", [])
+                    if not pages_list:
+                        raise HTTPException(status_code=400, detail="manifest.json has no pages listed.")
+                    page_entry = pages_list[0]
+                    page_name = page_entry.get("name") or export_name
+                    jsx_path = page_entry.get("path", f"pages/{page_name}.jsx")
+                    jsx_code = zf.read(jsx_path).decode("utf-8")
+                    description = manifest.get("description", "")
+                    store = request.app.state.store
+                    try:
+                        await store.create_page(page_name, jsx_code, description)
+                    except ValueError:
+                        await store.update_page(page_name, jsx_code)
+                    # Restore blobs if present
+                    for blob_entry in manifest.get("blobs", []):
+                        k = blob_entry.get("key")
+                        p = blob_entry.get("path")
+                        ct = blob_entry.get("content_type", "application/json")
+                        if k and p:
+                            try:
+                                await store.write_blob(k, zf.read(p).decode("utf-8"), ct)
+                            except Exception:
+                                pass
+                    return AppImportResult(
+                        name=page_name,
+                        status="loaded",
+                        tools_registered=0,
+                        pages_registered=1,
+                        message=f"Page {page_name!r} imported successfully.",
+                    )
+
+                elif kind == "module_app":
+                    # Pre-read blobs before ZIP closes
+                    for blob_entry in manifest.get("blobs", []):
+                        k = blob_entry.get("key")
+                        p = blob_entry.get("path")
+                        ct = blob_entry.get("content_type", "application/json")
+                        if k and p:
+                            try:
+                                blobs_to_restore.append((k, zf.read(p).decode("utf-8"), ct))
+                            except Exception:
+                                pass
+                    # Identify app directory (skip manifest.json + blobs/)
+                    non_meta_dirs = top_dirs - {"blobs"}
+                    if len(non_meta_dirs) != 1:
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"module_app ZIP must have exactly one app directory, found: {sorted(non_meta_dirs)}",
+                        )
+                    app_name = non_meta_dirs.pop()
+                    if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", app_name):
+                        raise HTTPException(status_code=400, detail=f"App name {app_name!r} is not a valid Python identifier.")
+                    # Validate path traversal (skip manifest.json and blobs/ entries)
+                    for zip_entry in names:
+                        if zip_entry == "manifest.json" or zip_entry.startswith("blobs/"):
+                            continue
+                        resolved = Path(zip_entry)
+                        if resolved.is_absolute() or ".." in resolved.parts:
+                            raise HTTPException(status_code=400, detail=f"Path traversal detected in ZIP entry: {zip_entry!r}")
+                        if not zip_entry.startswith(f"{app_name}/"):
+                            raise HTTPException(status_code=400, detail=f"ZIP entry {zip_entry!r} is outside the app directory.")
+                    init_path = f"{app_name}/__init__.py"
+                    if init_path not in names:
+                        raise HTTPException(status_code=400, detail=f"ZIP must contain {init_path!r} to be a valid Python package.")
+                    # Extract only app directory files
+                    dest_dir = _GROOT_APPS_DIR / app_name
+                    if dest_dir.exists():
+                        shutil.rmtree(dest_dir)
+                    dest_dir.mkdir(parents=True, exist_ok=True)
+                    for zip_entry in names:
+                        if zip_entry.startswith(f"{app_name}/"):
+                            zf.extract(zip_entry, _GROOT_APPS_DIR)
+                    logger.info("Extracted app %r to %s", app_name, dest_dir)
+
+                else:
+                    raise HTTPException(status_code=400, detail=f"Unknown manifest kind: {kind!r}")
+
+            # --- PATH B: bare .jsx files → legacy page export ---
+            elif bare_files and any(n.endswith(".jsx") for n in bare_files):
+                jsx_files = [n for n in bare_files if n.endswith(".jsx")]
+                if len(jsx_files) != 1:
+                    raise HTTPException(status_code=400, detail=f"Page ZIP must contain exactly one .jsx file, found: {jsx_files}")
+                page_name = jsx_files[0][:-4]
+                jsx_code = zf.read(jsx_files[0]).decode("utf-8")
+                description = ""
+                meta_file = f"{page_name}_meta.json"
+                if meta_file in bare_files:
+                    try:
+                        meta = json.loads(zf.read(meta_file).decode("utf-8"))
+                        description = meta.get("description", "")
+                    except Exception:
+                        pass
+                store = request.app.state.store
+                try:
+                    await store.create_page(page_name, jsx_code, description)
+                except ValueError:
+                    await store.update_page(page_name, jsx_code)
+                return AppImportResult(
+                    name=page_name,
+                    status="loaded",
+                    tools_registered=0,
+                    pages_registered=1,
+                    message=f"Page {page_name!r} imported successfully.",
+                )
+
+            # --- PATH C: unexpected bare files ---
+            elif bare_files:
                 raise HTTPException(
                     status_code=400,
                     detail=f"ZIP must have a single top-level directory. Found bare files: {bare_files[:3]}",
                 )
-            if len(top_dirs) != 1:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"ZIP must have exactly one top-level directory, found: {sorted(top_dirs)}",
-                )
-            app_name = top_dirs.pop()
 
-            # 4. Validate app name (safe identifier, no path traversal)
-            if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", app_name):
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"App name {app_name!r} is not a valid Python identifier.",
-                )
-
-            # 5. Validate no path traversal in any ZIP entry
-            for entry in names:
-                resolved = Path(entry)
-                if resolved.is_absolute() or ".." in resolved.parts:
+            # --- PATH D: legacy module app (no manifest, no bare files) ---
+            else:
+                if len(top_dirs) != 1:
                     raise HTTPException(
                         status_code=400,
-                        detail=f"Path traversal detected in ZIP entry: {entry!r}",
+                        detail=f"ZIP must have exactly one top-level directory, found: {sorted(top_dirs)}",
                     )
-                if not entry.startswith(f"{app_name}/"):
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"ZIP entry {entry!r} is outside the app directory.",
-                    )
+                app_name = top_dirs.pop()
+                if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", app_name):
+                    raise HTTPException(status_code=400, detail=f"App name {app_name!r} is not a valid Python identifier.")
+                for zip_entry in names:
+                    resolved = Path(zip_entry)
+                    if resolved.is_absolute() or ".." in resolved.parts:
+                        raise HTTPException(status_code=400, detail=f"Path traversal detected in ZIP entry: {zip_entry!r}")
+                    if not zip_entry.startswith(f"{app_name}/"):
+                        raise HTTPException(status_code=400, detail=f"ZIP entry {zip_entry!r} is outside the app directory.")
+                init_path = f"{app_name}/__init__.py"
+                if init_path not in names:
+                    raise HTTPException(status_code=400, detail=f"ZIP must contain {init_path!r} to be a valid Python package.")
+                dest_dir = _GROOT_APPS_DIR / app_name
+                if dest_dir.exists():
+                    shutil.rmtree(dest_dir)
+                dest_dir.mkdir(parents=True, exist_ok=True)
+                zf.extractall(_GROOT_APPS_DIR)
+                logger.info("Extracted app %r to %s", app_name, dest_dir)
 
-            # 6. Validate Python package: __init__.py required
-            init_path = f"{app_name}/__init__.py"
-            if init_path not in names:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"ZIP must contain {init_path!r} to be a valid Python package.",
-                )
+        # Hot-load for PATH A (module_app) and PATH D
+        if not app_name:
+            raise HTTPException(status_code=500, detail="Import routing error: app_name not set.")
 
-            # 7. Extract to groot_apps/
-            dest_dir = _GROOT_APPS_DIR / app_name
-            if dest_dir.exists():
-                shutil.rmtree(dest_dir)
-            dest_dir.mkdir(parents=True, exist_ok=True)
-            zf.extractall(_GROOT_APPS_DIR)
-            logger.info("Extracted app %r to %s", app_name, dest_dir)
-
-        # 8. Hot-load: import (or reload) the loader module and register
         loaded_apps: dict = getattr(request.app.state, "loaded_apps", {})
         registry = request.app.state.registry
         page_server = request.app.state.page_server
@@ -294,7 +397,6 @@ def get_app_routes() -> APIRouter:
             else:
                 module = importlib.import_module(module_path)
 
-            # Count tools/pages before registration to calculate delta
             tools_before = len(registry.list_tools(namespace=app_name))
             pages_before = len([p for p in await store.list_pages() if p.name.startswith(f"{app_name}-")])
 
@@ -310,6 +412,10 @@ def get_app_routes() -> APIRouter:
             }
             logger.info("Hot-loaded app %r: tools=%d pages=%d", app_name,
                         tools_after - tools_before, pages_after - pages_before)
+
+            # Restore blobs from manifest-based exports
+            for key, data, content_type in blobs_to_restore:
+                await store.write_blob(key, data, content_type)
 
             return AppImportResult(
                 name=app_name,
@@ -348,6 +454,7 @@ def get_app_routes() -> APIRouter:
         if name not in loaded_apps:
             raise HTTPException(status_code=404, detail=f"App not found: {name!r}")
 
+        blobs_exported = []
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
             # 1. Package the module directory
@@ -360,44 +467,35 @@ def get_app_routes() -> APIRouter:
             else:
                 logger.warning("Export: app directory not found on disk for %r", name)
 
-            # 2. Write app metadata as JSON
-            entry = loaded_apps[name]
-            meta = {
-                "name": name,
-                "status": entry.get("status"),
-                "meta": entry.get("meta", {}),
-            }
-            zf.writestr(f"{name}/_export_meta.json", json.dumps(meta, indent=2))
-
-            # 3. Optionally bundle pages and blobs
+            # 2. Optionally bundle blobs into blobs/ directory
             if include_data:
                 store = request.app.state.store
-                all_pages = await store.list_pages()
-                app_pages = [p for p in all_pages if p.name.startswith(f"{name}-")]
-                pages_export = []
-                for page_meta in app_pages:
-                    try:
-                        source = await store.get_page_source(page_meta.name)
-                        pages_export.append({"name": page_meta.name, "source": source})
-                    except Exception:
-                        pass
-                if pages_export:
-                    zf.writestr(f"{name}/_export_pages.json", json.dumps(pages_export, indent=2))
-
                 app_blobs = await store.list_blobs(prefix=f"{name}/")
-                blobs_export = []
-                for blob_meta in app_blobs:
+                for blob_item in app_blobs:
                     try:
-                        blob_data = await store.read_blob(blob_meta.key)
-                        blobs_export.append({
-                            "key": blob_meta.key,
-                            "data": blob_data.data,
-                            "content_type": blob_meta.content_type,
+                        blob_data = await store.read_blob(blob_item.key)
+                        zf.writestr(f"blobs/{blob_item.key}", blob_data.data)
+                        blobs_exported.append({
+                            "key": blob_item.key,
+                            "path": f"blobs/{blob_item.key}",
+                            "content_type": blob_item.content_type,
                         })
                     except Exception:
                         pass
-                if blobs_export:
-                    zf.writestr(f"{name}/_export_blobs.json", json.dumps(blobs_export, indent=2))
+
+            # 3. Write manifest.json at ZIP root
+            entry = loaded_apps[name]
+            app_meta = entry.get("meta", {})
+            manifest = {
+                "groot_version": "0.3.0",
+                "exported_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "name": name,
+                "description": app_meta.get("description", ""),
+                "kind": "module_app",
+                "pages": [],
+                "blobs": blobs_exported,
+            }
+            zf.writestr("manifest.json", json.dumps(manifest, indent=2))
 
         buf.seek(0)
         filename = f"{name}.zip"

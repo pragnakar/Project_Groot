@@ -45,6 +45,7 @@ class PageResult(BaseModel):
     description: str = ""
     created_at: str  # ISO 8601 UTC
     updated_at: str  # ISO 8601 UTC
+    last_opened_at: str | None = None  # null until first browser open
 
 
 class PageMeta(BaseModel):
@@ -54,6 +55,7 @@ class PageMeta(BaseModel):
     description: str = ""
     created_at: str  # ISO 8601 UTC
     updated_at: str  # ISO 8601 UTC
+    last_opened_at: str | None = None  # null until first browser open
 
 
 # ---------------------------------------------------------------------------

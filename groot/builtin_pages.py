@@ -86,14 +86,16 @@ function Page() {
   const [apiKey, setApiKey]   = React.useState(() => sessionStorage.getItem('groot_key') || '');
   const [keyStatus, setKeyStatus] = React.useState('idle');
 
-  // Always sync API key from server on load — overwrites any stale sessionStorage value
+  // Fetch API key then immediately load data — prevents 401 race on mount/remount
   React.useEffect(() => {
     fetch('/api/config').then(r => r.ok ? r.json() : null).then(cfg => {
+      const key = cfg && cfg.api_key ? cfg.api_key : apiKey;
       if (cfg && cfg.api_key) {
         setApiKey(cfg.api_key);
         sessionStorage.setItem('groot_key', cfg.api_key);
       }
-    }).catch(() => {});
+      reload(key);
+    }).catch(() => reload());
   }, []);
   const [importFile, setImportFile] = React.useState(null);
   const [importing, setImporting]   = React.useState(false);
@@ -150,12 +152,13 @@ function Page() {
     return () => clearTimeout(t);
   }, [apiKey]);
 
-  const reload = () => {
+  const reload = (k) => {
+    const key = k !== undefined ? k : apiKey;
     setLoading(true);
     Promise.all([
-      fetch('/api/system/state', {headers: apiKey ? {'X-Groot-Key': apiKey} : {}}).then(r => r.ok ? r.json() : null),
+      fetch('/api/system/state', {headers: key ? {'X-Groot-Key': key} : {}}).then(r => r.ok ? r.json() : null),
       fetch('/api/web-apps').then(r => r.ok ? r.json() : []),
-      fetch('/api/system/artifacts', {headers: apiKey ? {'X-Groot-Key': apiKey} : {}}).then(r => r.ok ? r.json() : null),
+      fetch('/api/system/artifacts', {headers: key ? {'X-Groot-Key': key} : {}}).then(r => r.ok ? r.json() : null),
     ])
       .then(([sysState, webAppList, artifacts]) => {
         setState(sysState);
@@ -165,8 +168,6 @@ function Page() {
       })
       .catch(e => { setError(e.message); setLoading(false); });
   };
-
-  React.useEffect(() => { reload(); }, []);
 
   const openSource = name => {
     setSourceModal({ name, src: null, loading: true });
@@ -421,8 +422,8 @@ function Page() {
           <div style={{...s.statCard, cursor:'pointer'}} onClick={() => navArtifacts('schemas')} title="View schemas">
             <div style={s.bigNum}>{state.schema_count}</div><div style={s.bigLabel}>Schemas</div>
           </div>
-          <div style={{...s.statCard, cursor:'pointer'}} onClick={() => navArtifacts('events')} title="View events">
-            <div style={s.bigNum}>{state.artifact_count}</div><div style={s.bigLabel}>Events</div>
+          <div style={{...s.statCard, cursor:'pointer'}} onClick={() => navArtifacts('pages')} title="View artifacts">
+            <div style={s.bigNum}>{state.artifact_count}</div><div style={s.bigLabel}>Artifacts</div>
           </div>
           <div style={s.statCard}>
             <div style={{...s.bigNum, fontSize:'1.3rem'}}>{fmtUptime(state.uptime_seconds)}</div>
@@ -552,7 +553,7 @@ function Page() {
             <div key={e.id} style={s.eventRow}>
               <span style={{color: levelColor(e.level), marginRight:'.5rem', fontWeight:600}}>[{e.level}]</span>
               <span style={{color:'#e2e8f0'}}>{e.message}</span>
-              <span style={{color:'#8b949e', fontSize:'.75rem', marginLeft:'.75rem'}}>{e.timestamp}</span>
+              <span title={e.timestamp} style={{color:'#8b949e', fontSize:'.75rem', marginLeft:'.75rem'}}>{fmtRelative(e.timestamp)}</span>
             </div>
           ))}
         </div>
@@ -610,6 +611,13 @@ function Page() {
         setLoading(false);
       })
       .catch(() => setLoading(false));
+  };
+
+  const switchTab = t => {
+    setTab(t);
+    setSelected(null);
+    setQuery('');
+    window.history.replaceState(null, '', '/artifacts?tab=' + t);
   };
 
   React.useEffect(() => {
@@ -705,10 +713,10 @@ function Page() {
       )}
 
       <div style={s.tabs}>
-        <button style={tab === 'pages'   ? s.tabA : s.tab} onClick={() => { setTab('pages');   setSelected(null); setQuery(''); }}>Pages ({pages.length})</button>
-        <button style={tab === 'blobs'   ? s.tabA : s.tab} onClick={() => { setTab('blobs');   setSelected(null); setQuery(''); }}>Blobs ({blobs.length})</button>
-        <button style={tab === 'schemas' ? s.tabA : s.tab} onClick={() => { setTab('schemas'); setSelected(null); setQuery(''); }}>Schemas ({schemas.length})</button>
-        <button style={tab === 'events'  ? s.tabA : s.tab} onClick={() => { setTab('events');  setSelected(null); setQuery(''); }}>Events ({events.length})</button>
+        <button style={tab === 'pages'   ? s.tabA : s.tab} onClick={() => switchTab('pages')}>Pages ({pages.length})</button>
+        <button style={tab === 'blobs'   ? s.tabA : s.tab} onClick={() => switchTab('blobs')}>Blobs ({blobs.length})</button>
+        <button style={tab === 'schemas' ? s.tabA : s.tab} onClick={() => switchTab('schemas')}>Schemas ({schemas.length})</button>
+        <button style={tab === 'events'  ? s.tabA : s.tab} onClick={() => switchTab('events')}>Events ({events.length})</button>
       </div>
 
       <input

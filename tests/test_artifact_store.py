@@ -99,7 +99,7 @@ async def test_read_nonexistent_blob_raises(store):
 async def test_create_and_get_page(store):
     result = await store.create_page("dashboard", "<div>hello</div>", "main dash")
     assert result.name == "dashboard"
-    assert result.url == "/apps/dashboard"
+    assert result.url.endswith("/apps/dashboard")
     assert result.description == "main dash"
 
 

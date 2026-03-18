@@ -125,7 +125,7 @@ async def test_create_page(registry_and_store):
     registry, store = registry_and_store
     result = await registry.call("create_page", store=store, name="dashboard", jsx_code="<div/>", description="main")
     assert isinstance(result, PageResult)
-    assert result.url == "/apps/dashboard"
+    assert result.url.endswith("/apps/dashboard")
     assert result.description == "main"
 
 

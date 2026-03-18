@@ -99,7 +99,7 @@ def test_create_and_list_pages(client, auth_headers):
         headers=auth_headers,
     )
     assert resp.status_code == 200
-    assert resp.json()["url"] == "/apps/dashboard"
+    assert resp.json()["url"].endswith("/apps/dashboard")
 
     resp = client.post("/api/tools/list_pages", headers=auth_headers)
     assert resp.status_code == 200

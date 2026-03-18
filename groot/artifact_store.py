@@ -24,6 +24,14 @@ def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _page_url(name: str) -> str:
+    """Return the full URL for a page, e.g. http://localhost:8000/apps/hello."""
+    from groot.config import get_settings
+    s = get_settings()
+    host = s.GROOT_HOST if s.GROOT_HOST != "0.0.0.0" else "localhost"
+    return f"http://{host}:{s.GROOT_PORT}/apps/{name}"
+
+
 class ArtifactStore:
     """SQLite-backed persistence layer for all Groot artifacts."""
 
@@ -157,7 +165,7 @@ class ArtifactStore:
             )
             await db.commit()
 
-        return PageResult(name=name, url=f"/apps/{name}", description=description, created_at=now, updated_at=now)
+        return PageResult(name=name, url=_page_url(name), description=description, created_at=now, updated_at=now)
 
     async def update_page(self, name: str, jsx_code: str) -> PageResult:
         """Replace a page's JSX. Raises KeyError if not found."""
@@ -176,7 +184,7 @@ class ArtifactStore:
             )
             await db.commit()
 
-        return PageResult(name=name, url=f"/apps/{name}", description=description, created_at=created_at, updated_at=now)
+        return PageResult(name=name, url=_page_url(name), description=description, created_at=created_at, updated_at=now)
 
     async def get_page(self, name: str) -> PageResult:
         """Fetch a single page. Raises KeyError if not found."""
@@ -189,7 +197,7 @@ class ArtifactStore:
         if row is None:
             raise KeyError(f"Page not found: {name!r}")
 
-        return PageResult(name=row[0], url=f"/apps/{row[0]}", description=row[1], created_at=row[2], updated_at=row[3])
+        return PageResult(name=row[0], url=_page_url(row[0]), description=row[1], created_at=row[2], updated_at=row[3])
 
     async def get_page_source(self, name: str) -> str:
         """Fetch raw JSX source for a page. Raises KeyError if not found."""
@@ -211,7 +219,7 @@ class ArtifactStore:
                 rows = await cur.fetchall()
 
         return [
-            PageMeta(name=r[0], url=f"/apps/{r[0]}", description=r[1], created_at=r[2], updated_at=r[3])
+            PageMeta(name=r[0], url=_page_url(r[0]), description=r[1], created_at=r[2], updated_at=r[3])
             for r in rows
         ]
 

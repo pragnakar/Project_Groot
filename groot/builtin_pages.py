@@ -69,6 +69,17 @@ function Page() {
   const [error, setError]     = React.useState(null);
   const [apiKey, setApiKey]   = React.useState(() => sessionStorage.getItem('groot_key') || '');
   const [keyStatus, setKeyStatus] = React.useState('idle');
+
+  // Auto-discover API key from server on first load if not already saved
+  React.useEffect(() => {
+    if (sessionStorage.getItem('groot_key')) return;
+    fetch('/api/config').then(r => r.ok ? r.json() : null).then(cfg => {
+      if (cfg && cfg.api_key) {
+        setApiKey(cfg.api_key);
+        sessionStorage.setItem('groot_key', cfg.api_key);
+      }
+    }).catch(() => {});
+  }, []);
   const [importFile, setImportFile]     = React.useState(null);
   const [importing, setImporting]       = React.useState(false);
   const [importMsg, setImportMsg]       = React.useState(null);

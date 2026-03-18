@@ -185,12 +185,33 @@ def get_uptime(request: Request) -> float:
 
 
 # ---------------------------------------------------------------------------
-# Health
+# Health + config discovery
 # ---------------------------------------------------------------------------
 
 @app.get("/health")
 async def health():
     return {"status": "ok", "version": "0.3.0"}
+
+
+@app.get("/api/config")
+async def get_config():
+    """Return runtime connection info for the dashboard (no auth required).
+
+    Exposes the API key so the browser dashboard can auto-populate the key
+    field and make authenticated requests without manual copy-paste.
+    Safe for local/on-prem use — do not expose this endpoint externally.
+    """
+    import os
+    settings = get_settings()
+    host = settings.GROOT_HOST if settings.GROOT_HOST != "0.0.0.0" else "localhost"
+    port = settings.GROOT_PORT
+    keys = os.environ.get("GROOT_API_KEYS", "").strip()
+    api_key = keys.split(",")[0].strip() if keys else "groot_sk_dev_key_01"
+    return {
+        "api_key": api_key,
+        "base_url": f"http://{host}:{port}",
+        "dashboard_url": f"http://{host}:{port}/",
+    }
 
 
 # ---------------------------------------------------------------------------

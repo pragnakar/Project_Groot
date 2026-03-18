@@ -304,3 +304,29 @@ class UpdateAppPageRequest(BaseModel):
 
 class ListAppPagesRequest(BaseModel):
     app: str
+
+
+# ---------------------------------------------------------------------------
+# App bundle models (export / import of DB-registered multi-page apps)
+# ---------------------------------------------------------------------------
+
+class AppBundlePage(BaseModel):
+    """A single page within an exported app bundle."""
+    page: str
+    jsx_code: str
+    description: str = ""
+
+
+class AppBundle(BaseModel):
+    """Serialised representation of a multi-page app — used for export and import."""
+    name: str
+    description: str = ""
+    layout_jsx: str = ""
+    pages: list[AppBundlePage] = []
+
+
+class AppBundleImportResult(BaseModel):
+    """Response for POST /api/app-bundles."""
+    name: str
+    pages_imported: int
+    url: str

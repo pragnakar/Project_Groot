@@ -82,6 +82,9 @@ function Page() {
   const [importFile, setImportFile]     = React.useState(null);
   const [importing, setImporting]       = React.useState(false);
   const [importMsg, setImportMsg]       = React.useState(null);
+  const [dbApps, setDbApps]             = React.useState([]);
+  const [importBundleFile, setImportBundleFile] = React.useState(null);
+  const [importingBundle, setImportingBundle]   = React.useState(false);
   const [deleteStatus, setDeleteStatus]         = React.useState({});
   const [confirmDelete, setConfirmDelete]       = React.useState(null);
   const [pageDeleteStatus, setPageDeleteStatus] = React.useState({});
@@ -119,12 +122,14 @@ function Page() {
       fetch('/api/pages').then(r => r.ok ? r.json() : []),
       fetch('/api/system/artifacts', {headers: apiKey ? {'X-Groot-Key': apiKey} : {}}).then(r => r.ok ? r.json() : null),
       fetch('/api/apps').then(r => r.ok ? r.json() : {apps:[]}),
+      fetch('/api/app-bundles').then(r => r.ok ? r.json() : []),
     ])
-      .then(([sysState, pageList, artifacts, appsData]) => {
+      .then(([sysState, pageList, artifacts, appsData, dbAppList]) => {
         setState(sysState);
         setPages(pageList || []);
         setEvents(artifacts ? (artifacts.recent_events || []).slice(0, 10) : []);
         setApps((appsData && appsData.apps) || []);
+        setDbApps(dbAppList || []);
         setLoading(false);
       })
       .catch(e => { setError(e.message); setLoading(false); });
@@ -215,6 +220,38 @@ function Page() {
         setImportMsg({ ok: false, text: e.message });
         showToast(e.message, false);
       });
+  };
+
+  const doImportBundle = () => {
+    if (!importBundleFile) return;
+    setImportingBundle(true);
+    const reader = new FileReader();
+    reader.onload = e => {
+      try {
+        JSON.parse(e.target.result); // validate JSON
+        fetch('/api/app-bundles', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json', 'X-Groot-Key': apiKey},
+          body: e.target.result,
+        })
+          .then(r => r.json())
+          .then(d => {
+            setImportingBundle(false);
+            if (d.detail) {
+              showToast(typeof d.detail === 'string' ? d.detail : JSON.stringify(d.detail), false);
+            } else {
+              showToast('\u2713 ' + d.name + ' imported \u2014 ' + d.pages_imported + ' pages', true);
+              setImportBundleFile(null);
+              reload();
+            }
+          })
+          .catch(err => { setImportingBundle(false); showToast(err.message, false); });
+      } catch (err) {
+        setImportingBundle(false);
+        showToast('Invalid JSON: ' + err.message, false);
+      }
+    };
+    reader.readAsText(importBundleFile);
   };
 
   const keyDot = () => {
@@ -392,6 +429,37 @@ function Page() {
                   </span>
                 </div>
                 {deleteStatus[a.name] && <span style={{color:'#8b949e', fontSize:'.75rem', flexShrink:0}}>{deleteStatus[a.name]}</span>}
+              </div>
+            ))
+        }
+      </div>
+
+      <div style={s.card}>
+        <div style={s.h2}>Multi-Page Apps</div>
+
+        <div style={{display:'flex', gap:'.5rem', alignItems:'center', flexWrap:'wrap', marginBottom:'.5rem', paddingBottom:'1rem', borderBottom:'1px solid #21262d'}}>
+          <input type="file" accept=".json" onChange={e => setImportBundleFile(e.target.files[0])}
+            style={{color:'#8b949e', fontSize:'.85rem', flex:1, minWidth:180}} />
+          <button style={{...s.btnGreen, display:'flex', alignItems:'center'}} onClick={doImportBundle} disabled={!importBundleFile || importingBundle}>
+            {importingBundle && <span style={s.spinner}></span>}
+            {importingBundle ? 'Importing\u2026' : 'Import Bundle'}
+          </button>
+        </div>
+
+        {dbApps.length === 0
+          ? <div style={{color:'#8b949e', fontSize:'.9rem'}}>No multi-page apps registered. Use create_app to build one.</div>
+          : dbApps.map(a => (
+              <div key={a.name} style={{...s.row, gap:'.75rem'}}>
+                <div style={{display:'flex', alignItems:'center', flex:1, minWidth:0, gap:'.5rem'}}>
+                  <a href={'/apps/' + a.name + '/'} target="_blank" rel="noopener"
+                     style={{...s.link, fontWeight:600, fontSize:'.9rem'}}>{a.name}</a>
+                  <span style={{color:'#8b949e', fontSize:'.78rem'}}>{a.page_count} page{a.page_count !== 1 ? 's' : ''}</span>
+                  {a.description && <span style={{color:'#8b949e', fontSize:'.78rem', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>\u00b7 {a.description}</span>}
+                </div>
+                <button style={{...s.btn, color:'#4ade80', borderColor:'#4ade80'}}
+                  onClick={() => { window.location.href = '/api/app-bundles/' + encodeURIComponent(a.name); }}>
+                  Export Bundle
+                </button>
               </div>
             ))
         }

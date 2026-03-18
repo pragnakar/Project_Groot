@@ -500,3 +500,25 @@ class ArtifactStore:
                         description=r[2], created_at=r[3], updated_at=r[4])
             for r in rows
         ]
+
+    async def list_apps(self) -> list[dict]:
+        """List all registered multi-page apps with page counts."""
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute(
+                """SELECT a.name, a.description, a.created_at,
+                   (SELECT COUNT(*) FROM app_pages p WHERE p.app_name = a.name) AS page_count
+                   FROM apps a ORDER BY a.name"""
+            ) as cur:
+                rows = await cur.fetchall()
+        return [{"name": r[0], "description": r[1] or "", "created_at": r[2], "page_count": r[3]} for r in rows]
+
+    async def get_app_info(self, name: str) -> dict:
+        """Return app metadata dict. Raises KeyError if app not found."""
+        async with aiosqlite.connect(self._db_path) as db:
+            async with db.execute(
+                "SELECT name, description, layout_jsx FROM apps WHERE name = ?", (name,)
+            ) as cur:
+                row = await cur.fetchone()
+        if row is None:
+            raise KeyError(f"App not found: {name!r}")
+        return {"name": row[0], "description": row[1] or "", "layout_jsx": row[2] or ""}

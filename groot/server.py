@@ -7,8 +7,10 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
+import json as _json
+
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel
 
 _SHELL_DIR = Path(__file__).parent.parent / "groot-shell"
@@ -17,6 +19,8 @@ from groot.artifact_store import ArtifactStore
 from groot.auth import AuthContext, verify_api_key
 from groot.config import Settings, get_settings
 from groot.models import (
+    AppBundle,
+    AppBundleImportResult,
     AppPageMeta,
     AppPageResult,
     AppResult,
@@ -488,6 +492,70 @@ async def system_artifacts(
     auth: AuthContext = Depends(verify_api_key),
 ):
     return await registry.call("list_artifacts", store=store)
+
+
+# ---------------------------------------------------------------------------
+# App bundle routes — export / import DB-registered multi-page apps
+# ---------------------------------------------------------------------------
+
+@app.get("/api/app-bundles")
+async def list_app_bundles(store: ArtifactStore = Depends(get_store)) -> list[dict]:
+    """List all multi-page apps registered via create_app (no auth required)."""
+    return await store.list_apps()
+
+
+@app.get("/api/app-bundles/{name}")
+async def export_app_bundle(name: str, store: ArtifactStore = Depends(get_store)):
+    """Export a multi-page app as a downloadable JSON bundle (no auth required)."""
+    try:
+        info = await store.get_app_info(name)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"App not found: {name!r}")
+
+    pages_meta = await store.list_app_pages(name)
+    pages = []
+    for pm in pages_meta:
+        try:
+            jsx = await store.get_app_page_source(name, pm.page)
+            pages.append({"page": pm.page, "jsx_code": jsx, "description": pm.description or ""})
+        except KeyError:
+            pass
+
+    bundle = {
+        "name": info["name"],
+        "description": info["description"],
+        "layout_jsx": info["layout_jsx"],
+        "pages": pages,
+    }
+    return Response(
+        content=_json.dumps(bundle, indent=2),
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{name}-bundle.json"'},
+    )
+
+
+@app.post("/api/app-bundles", response_model=AppBundleImportResult)
+async def import_app_bundle(
+    body: AppBundle,
+    store: ArtifactStore = Depends(get_store),
+    auth: AuthContext = Depends(verify_api_key),
+):
+    """Import a JSON bundle, creating or updating the app and all its pages."""
+    try:
+        await store.create_app(body.name, body.description, body.layout_jsx)
+    except ValueError:
+        pass  # app already exists — pages will be upserted below
+
+    for p in body.pages:
+        try:
+            await store.create_app_page(body.name, p.page, p.jsx_code, p.description)
+        except ValueError:
+            await store.update_app_page(body.name, p.page, p.jsx_code)
+
+    settings = get_settings()
+    host = settings.GROOT_HOST if settings.GROOT_HOST != "0.0.0.0" else "localhost"
+    url = f"http://{host}:{settings.GROOT_PORT}/apps/{body.name}/"
+    return AppBundleImportResult(name=body.name, pages_imported=len(body.pages), url=url)
 
 
 # ---------------------------------------------------------------------------

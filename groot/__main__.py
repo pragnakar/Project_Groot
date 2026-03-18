@@ -78,7 +78,18 @@ def main():
 
             def _run_http():
                 import uvicorn
-                uvicorn.run("groot.server:app", host=settings.GROOT_HOST, port=port)
+                # Route ALL uvicorn log output to stderr so stdout stays clean for
+                # the MCP stdio JSON protocol. By default uvicorn's access log handler
+                # writes to stdout, which corrupts the MCP message stream.
+                log_config = uvicorn.config.LOGGING_CONFIG.copy()
+                for handler in log_config.get("handlers", {}).values():
+                    handler["stream"] = "ext://sys.stderr"
+                uvicorn.run(
+                    "groot.server:app",
+                    host=settings.GROOT_HOST,
+                    port=port,
+                    log_config=log_config,
+                )
 
             t = threading.Thread(target=_run_http, daemon=True)
             t.start()

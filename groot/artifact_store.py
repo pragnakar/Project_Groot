@@ -60,7 +60,10 @@ class ArtifactStore:
         self._artifact_dir = artifact_dir
 
     async def init_db(self) -> None:
-        """Create all tables if they do not exist."""
+        """Create data directory and all tables if they do not exist."""
+        from pathlib import Path
+        Path(self._db_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(self._artifact_dir).mkdir(parents=True, exist_ok=True)
         async with aiosqlite.connect(self._db_path) as db:
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS blobs (

@@ -2,14 +2,7 @@
   "mcpServers": {
     "groot": {
       "command": "/absolute/path/to/python",
-      "args": ["-m", "groot", "--mcp-stdio", "--http"],
-      "env": {
-        "GROOT_DB_PATH": "/absolute/path/to/Project_Groot/groot.db",
-        "GROOT_ARTIFACT_DIR": "/absolute/path/to/Project_Groot/artifacts",
-        "GROOT_API_KEYS": "your-secret-key-here",
-        "GROOT_HOST": "127.0.0.1",
-        "GROOT_PORT": "8000"
-      }
+      "args": ["-m", "groot", "--mcp-stdio", "--http"]
     }
   }
 }

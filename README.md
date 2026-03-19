@@ -97,29 +97,21 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
   "mcpServers": {
     "groot": {
       "command": "/absolute/path/to/python",
-      "args": ["-m", "groot", "--mcp-stdio", "--http"],
-      "env": {
-        "GROOT_DB_PATH": "/absolute/path/to/Project_Groot/groot.db",
-        "GROOT_ARTIFACT_DIR": "/absolute/path/to/Project_Groot/artifacts",
-        "GROOT_API_KEYS": "your-secret-key-here",
-        "GROOT_HOST": "127.0.0.1",
-        "GROOT_PORT": "8000"
-      }
+      "args": ["-m", "groot", "--mcp-stdio", "--http"]
     }
   }
 }
 ```
 
-**Required:** use absolute paths everywhere. Claude Desktop launches with a minimal `PATH` — relative paths and `python` without a full path will fail.
+That's it. No env vars needed — Groot resolves all paths (database, artifacts, host, port) automatically from its install location.
 
-- Find your Python path: `which python` (or `which python3`)
-- Find your project path: `pwd` inside the Project_Groot directory
-
-**`GROOT_API_KEYS`** — set this to a stable secret string (any value you choose). Without it, a new random key is generated on every restart, which means the dashboard's API key field needs to be updated each time.
+**The only thing you need:** the absolute path to the Python binary where Groot is installed. Find it with `which python` (or `which python3`).
 
 Restart Claude Desktop. The hammer icon in the toolbar confirms Groot tools are connected.
 
 **Test it:** ask Claude to `create a Groot page called hello with a live clock`. Then open `http://localhost:8000/apps/hello` in your browser. The dashboard is at `http://localhost:8000/`.
+
+> **Optional overrides:** if you need a custom database path, port, or API key, you can still set env vars (`GROOT_DB_PATH`, `GROOT_PORT`, etc.) in the config — see [Configuration](#configuration) below. But the defaults work out of the box.
 
 ---
 
@@ -143,9 +135,9 @@ Connect to `http://localhost:8000/mcp/sse?key=<api-key>` from any SSE-capable MC
 
 | Variable | Default | Description |
 |---|---|---|
-| `GROOT_API_KEYS` | *(auto-generated)* | Comma-separated API keys. If unset, a random key is generated and printed at startup. Set this to a stable value when using Claude Desktop so the key doesn't change on every restart. |
-| `GROOT_DB_PATH` | `groot.db` | SQLite database path (use absolute path in Claude Desktop config) |
-| `GROOT_ARTIFACT_DIR` | `artifacts` | Blob storage directory (use absolute path in Claude Desktop config) |
+| `GROOT_API_KEYS` | *(auto-generated)* | Comma-separated API keys. If unset, a random key is generated and printed at startup. |
+| `GROOT_DB_PATH` | `~/.groot/groot.db` | SQLite database path. Auto-created on first run. |
+| `GROOT_ARTIFACT_DIR` | `~/.groot/artifacts` | Blob storage directory. Auto-created on first run. |
 | `GROOT_APPS` | `_example` | Comma-separated app modules to auto-load from `groot_apps/` |
 | `GROOT_HOST` | `0.0.0.0` | HTTP server bind address. Use `127.0.0.1` for local-only access. |
 | `GROOT_PORT` | `8000` | HTTP server port |

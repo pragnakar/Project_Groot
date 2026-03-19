@@ -305,9 +305,11 @@ class ArtifactStore:
         return PageResult(name=name, url=_page_url(name), description=description, created_at=created_at, updated_at=now, last_opened_at=last_opened_at)
 
     async def delete_page(self, name: str) -> bool:
-        """Delete a page. Returns True if deleted, False if not found."""
+        """Delete a page and its associated blobs ({name}/ prefix). Returns True if deleted, False if not found."""
         async with aiosqlite.connect(self._db_path) as db:
             cur = await db.execute("DELETE FROM pages WHERE name = ?", (name,))
+            # Clean up blobs namespaced under this page
+            await db.execute("DELETE FROM blobs WHERE key LIKE ?", (f"{name}/%",))
             await db.commit()
         return cur.rowcount > 0
 
